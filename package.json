@@ -13,7 +13,8 @@
   "type": "module",
   "dependencies": {
     "@aws-sdk/client-cognito-identity-provider": "^3.1125.0",
-    "dotenv": "^17.4.2"
+    "dotenv": "^17.4.2",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@types/node": "^26.4.1",
