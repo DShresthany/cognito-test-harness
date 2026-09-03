@@ -19,6 +19,10 @@ export class CognitoLoginManager {
   readonly authResults: CognitoAuthResult[] = [];
   readonly runId = randomUUID().slice(0, 8);
   private readonly createdUsernames: string[] = [];
+  private readonly credentials = new Map<
+    string,
+    { username: string; password: string }
+  >();
 
   constructor(
     private client: CognitoIdentityProviderClient,
@@ -44,6 +48,14 @@ export class CognitoLoginManager {
     return result;
   }
 
+  getCredentials(key: string): { username: string; password: string } {
+    const creds = this.credentials.get(key);
+    if (!creds) {
+      throw new Error(`No credentials for user key "${key}"`);
+    }
+    return creds;
+  }
+
   async setupUsers(users: TestUser[]): Promise<CognitoAuthResult[]> {
     for (const user of users) {
       // This pool requires Username to be an email; uniqueness comes from +runId.
@@ -51,6 +63,10 @@ export class CognitoLoginManager {
       const password = randomPassword();
       const cognitoUsername = await this.signupUser(email, email, password);
       this.createdUsernames.push(cognitoUsername);
+      this.credentials.set(user.key, {
+        username: cognitoUsername,
+        password,
+      });
       const auth = await this.loginUser(cognitoUsername, password, {
         key: user.key,
         email,
