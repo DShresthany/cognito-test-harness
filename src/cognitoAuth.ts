@@ -5,7 +5,7 @@ import {
   } from "@aws-sdk/client-cognito-identity-provider";
   import { getSecretHash } from "./secretHash.js";
   
-  function required(name: string): string {
+export function required(name: string): string {
     const value = process.env[name];
     if (!value) throw new Error(`Missing required env: ${name}`);
     return value;

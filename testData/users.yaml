@@ -1,8 +1,5 @@
 users:
   - key: smoke
-    email: dikeshtest1234+cognito-smoke@gmail.com
-    passwordEnv: COGNITO_YAML_SMOKE_PASSWORD
-
+    emailPrefix: dikeshtest1234+cognito-smoke
   - key: checkout
-    email: dikeshtest1234+cognito-checkout@gmail.com
-    passwordEnv: COGNITO_YAML_CHECKOUT_PASSWORD
+    emailPrefix: dikeshtest1234+cognito-checkout

@@ -3,14 +3,12 @@ import { parse } from "yaml";
 
 type YamlUser = {
   key: string;
-  email: string;
-  passwordEnv: string;
+  emailPrefix: string;
 };
 
 export type TestUser = {
   key: string;
-  email: string;
-  password: string;
+  emailPrefix: string;
 };
 
 export function loadTestUsers(path = "testData/users.yaml"): TestUser[] {
@@ -19,11 +17,10 @@ export function loadTestUsers(path = "testData/users.yaml"): TestUser[] {
     throw new Error(`No users found in ${path}`);
   }
 
-  return doc.users.map((u) => {
-    const password = process.env[u.passwordEnv];
-    if (!password) {
-      throw new Error(`Missing env ${u.passwordEnv} for user key "${u.key}"`);
+  return doc.users.map((user) => {
+    if (!user.key || !user.emailPrefix) {
+      throw new Error(`Each YAML user needs key and emailPrefix`);
     }
-    return { key: u.key, email: u.email, password };
+    return { key: user.key, emailPrefix: user.emailPrefix };
   });
 }
