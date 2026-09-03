@@ -6,19 +6,32 @@ import { loadTestUsers } from "../src/loadTestUsers.js";
 
 config();
 
+const users = loadTestUsers();
+const manager = CognitoLoginManager.fromEnv();
+const app = createApp(manager);
+
+beforeAll(async () => {
+  await manager.setupUsers(users);
+}, 90_000);
+
+afterAll(async () => {
+  await manager.cleanup();
+}, 90_000);
+
+describe("YAML provision + login", () => {
+  it.each(users.map((user) => [user.key] as const))(
+    "logs in YAML user %s",
+    (key) => {
+      const auth = manager.getAuthResult(key);
+      expect(auth.email).toContain(manager.runId);
+      expect(auth.username).toBeTruthy();
+      expect(auth.accessToken).toBeTruthy();
+      expect(auth.idToken).toBeTruthy();
+    }
+  );
+});
+
 describe("stub API", () => {
-  const manager = CognitoLoginManager.fromEnv();
-  const app = createApp(manager);
-  const users = loadTestUsers();
-
-  beforeAll(async () => {
-    await manager.setupUsers(users);
-  }, 90_000);
-
-  afterAll(async () => {
-    await manager.cleanup();
-  }, 90_000);
-
   it("POST /login then GET /me", async () => {
     const creds = manager.getCredentials("smoke");
 
