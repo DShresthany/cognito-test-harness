@@ -8,7 +8,7 @@ TypeScript/Vitest harness for a **Cognito Traditional web app** (confidential cl
 - Admin auth flow: `ADMIN_USER_PASSWORD_AUTH`
 - YAML personas (no passwords in git)
 - Unique users per run (`emailPrefix+runId@gmail.com`) + random passwords + `AdminDeleteUser` cleanup
-- Stub API: `POST /login` (secret stays on the server) and `GET /me` (Cognito JWT verify)
+- Stub API: `POST /login` (secret stays on the server) and `GET /confirmed` (Cognito JWT verify + confirmation payload)
 
 This pool requires **Username to be an email**. Uniqueness comes from the Gmail `+runId` alias, not `user-${uuid}`.
 
@@ -43,9 +43,9 @@ npm start   # http://localhost:3000
 ```text
 src/
   secretHash.ts            HMAC helper
-  cognitoAuth.ts           Cognito client + AdminInitiateAuth
+  cognitoAuth.ts           Cognito client + env helpers
   cognitoLoginManager.ts   provision, login, credentials, cleanup
-  app.ts                   POST /login, GET /me
+  app.ts                   POST /login, GET /confirmed
   jwtVerifier.ts           aws-jwt-verify (access token)
   server.ts                optional Node listener
 testData/users.yaml        personas (key + emailPrefix)

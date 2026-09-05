@@ -1,21 +1,36 @@
 import { config } from "dotenv";
 import { describe, expect, it } from "vitest";
-import { adminLogin } from "../src/cognitoAuth.js";
+import { CognitoLoginManager } from "../src/cognitoLoginManager.js";
 
 config();
 
-describe("adminLogin", () => {
+describe("CognitoLoginManager.loginUser (seed user)", () => {
+  const manager = CognitoLoginManager.fromEnv();
+
   it("returns tokens for a valid user", async () => {
     const username = process.env.COGNITO_TEST_USERNAME!;
     const password = process.env.COGNITO_TEST_PASSWORD!;
-    const result = await adminLogin(username, password);
-    expect(result.AuthenticationResult?.AccessToken).toBeTruthy();
-    expect(result.AuthenticationResult?.IdToken).toBeTruthy();
+    const email = process.env.COGNITO_TEST_EMAIL ?? username;
+
+    const result = await manager.loginUser(username, password, {
+      key: "seed",
+      email,
+    });
+
+    expect(result.accessToken).toBeTruthy();
+    expect(result.idToken).toBeTruthy();
   });
 
   it("rejects an incorrect password", async () => {
     const username = process.env.COGNITO_TEST_USERNAME!;
-    await expect(adminLogin(username, "WrongPassword123!")).rejects.toMatchObject({
+    const email = process.env.COGNITO_TEST_EMAIL ?? username;
+
+    await expect(
+      manager.loginUser(username, "WrongPassword123!", {
+        key: "seed",
+        email,
+      })
+    ).rejects.toMatchObject({
       name: "NotAuthorizedException",
     });
   });

@@ -26,7 +26,7 @@ export function createApp(manager: CognitoLoginManager) {
     }
   });
 
-  app.get("/me", async (c) => {
+  app.get("/confirmed", async (c) => {
     const header = c.req.header("Authorization") ?? "";
     const token = header.startsWith("Bearer ") ? header.slice(7) : "";
     if (!token) {
@@ -36,9 +36,12 @@ export function createApp(manager: CognitoLoginManager) {
     try {
       const payload = await verifier.verify(token);
       return c.json({
-        sub: payload.sub,
-        username: payload.username,
-        clientId: payload.client_id,
+        status: "signed_in",
+        message: "Login confirmed",
+        user: {
+          sub: payload.sub,
+          username: payload.username,
+        },
       });
     } catch {
       return c.json({ error: "invalid token" }, 401);
