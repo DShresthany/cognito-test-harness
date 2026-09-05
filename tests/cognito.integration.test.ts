@@ -32,7 +32,7 @@ describe("YAML provision + login", () => {
 });
 
 describe("stub API", () => {
-  it("POST /login then GET /me", async () => {
+  it("POST /login then GET /confirmed", async () => {
     const creds = manager.getCredentials("smoke");
 
     const login = await app.request("/login", {
@@ -50,16 +50,19 @@ describe("stub API", () => {
     };
     expect(tokens.accessToken).toBeTruthy();
 
-    const me = await app.request("/me", {
+    const confirmed = await app.request("/confirmed", {
       headers: { Authorization: `Bearer ${tokens.accessToken}` },
     });
-    expect(me.status).toBe(200);
-    const body = (await me.json()) as {
-      sub?: string;
-      username?: string;
+    expect(confirmed.status).toBe(200);
+    const body = (await confirmed.json()) as {
+      status?: string;
+      message?: string;
+      user?: { sub?: string; username?: string };
     };
-    expect(body.username).toBeTruthy();
-    expect(body.sub).toBeTruthy();
+    expect(body.status).toBe("signed_in");
+    expect(body.message).toBe("Login confirmed");
+    expect(body.user?.username).toBeTruthy();
+    expect(body.user?.sub).toBeTruthy();
   });
 
   it("rejects a bad password", async () => {
@@ -75,8 +78,8 @@ describe("stub API", () => {
     expect(res.status).toBe(401);
   });
 
-  it("rejects GET /me without a token", async () => {
-    const res = await app.request("/me");
+  it("rejects GET /confirmed without a token", async () => {
+    const res = await app.request("/confirmed");
     expect(res.status).toBe(401);
   });
 });
