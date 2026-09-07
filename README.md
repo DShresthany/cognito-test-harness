@@ -1,6 +1,6 @@
 # Cognito test harness
 
-TypeScript/Vitest harness for a **Cognito Traditional web app** (confidential client). The **server** holds the app client secret, computes `SECRET_HASH`, and authenticates with `AdminInitiateAuth`. Tests cover SDK login, YAML-driven user provisioning, and a stub HTTP API.
+TypeScript/Vitest harness for a **Cognito Traditional web app** (confidential client). The **server** holds the app client secret, computes `SECRET_HASH`, and authenticates with `AdminInitiateAuth`. Tests cover YAML-driven user provisioning, SDK login, and a stub HTTP API. Cognito infrastructure is defined with **CDK** under `infra/`.
 
 ## What this demonstrates
 
@@ -9,24 +9,55 @@ TypeScript/Vitest harness for a **Cognito Traditional web app** (confidential cl
 - YAML personas (no passwords in git)
 - Unique users per run (`emailPrefix+runId@gmail.com`) + random passwords + `AdminDeleteUser` cleanup
 - Stub API: `POST /login` (secret stays on the server) and `GET /confirmed` (Cognito JWT verify + confirmation payload)
+- CDK-owned User Pool + confidential client (reproducible deploy)
 
 This pool requires **Username to be an email**. Uniqueness comes from the Gmail `+runId` alias, not `user-${uuid}`.
 
 ## Prerequisites
 
 - Node.js 20+
-- AWS CLI profile that can call Cognito admin APIs (this repo uses `AWS_PROFILE`)
-- A Cognito User Pool with:
-  - Self-registration off
-  - Traditional web app client **with secret**
-  - `ALLOW_ADMIN_USER_PASSWORD_AUTH` enabled
-- One confirmed user for the SDK smoke tests (`COGNITO_TEST_*`)
+- AWS CLI profile that can call Cognito admin APIs and deploy CloudFormation (this repo uses `AWS_PROFILE=cognito-dev`)
+- CDK bootstrap once per account/region (see Infra below)
+
+## Infra (CDK)
+
+Stack: `CognitoHarnessStack` in [`infra/`](infra/) — User Pool (email sign-in, no self-registration) + confidential app client with `ALLOW_ADMIN_USER_PASSWORD_AUTH`.
+
+```bash
+cd infra
+npm install
+
+# once per account/region
+npx cdk bootstrap --profile cognito-dev
+
+npx cdk synth --profile cognito-dev
+npx cdk deploy --profile cognito-dev
+```
+
+From the repo root you can also run `npm run infra:synth` / `npm run infra:deploy` / `npm run infra:test`.
+
+### Outputs → `.env`
+
+After deploy, copy stack outputs into the harness `.env` (never commit `.env`):
+
+| Stack output | Env var |
+|---|---|
+| `UserPoolId` | `COGNITO_USER_POOL_ID` |
+| `UserPoolClientId` | `COGNITO_CLIENT_ID` |
+| `UserPoolClientSecret` | `COGNITO_CLIENT_SECRET` |
+| `Region` | `AWS_REGION` |
+
+Keep `AWS_PROFILE=cognito-dev` (or your deploy profile).
+
+`UserPoolClientSecret` is emitted as a stack output for this **private learning** repo — treat it as a secret and do not paste it into public issues/PRs.
+
+Integration tests create and delete their own Cognito users via `CognitoLoginManager.setupUsers` / `cleanup` — no long-lived seed user is required.
 
 ## Setup
 
 ```bash
 cp .env.example .env
-# fill in .env — never commit it
+# fill in .env from CDK outputs — never commit it
 
 npm install
 npm test
@@ -41,6 +72,7 @@ npm start   # http://localhost:3000
 ## Layout
 
 ```text
+infra/                     CDK app (CognitoHarnessStack)
 src/
   secretHash.ts            HMAC helper
   cognitoAuth.ts           Cognito client + env helpers
@@ -52,7 +84,6 @@ testData/users.yaml        personas (key + emailPrefix)
 tests/
   secretHash.test.ts
   randomPassword.test.ts
-  adminAuth.test.ts        existing .env user
   cognito.integration.test.ts  YAML + API, shared beforeAll
 ```
 
@@ -61,8 +92,9 @@ tests/
 - Do not commit `.env`, client secrets, or tokens
 - Do not log generated passwords
 - Keep this GitHub repo **private** until you are sure no IDs/secrets leaked
+- Prefer rotating the app client secret if it was ever exposed
 
 ## Roadmap
 
-- CDK stack for the User Pool + confidential client
+- ~~CDK stack for the User Pool + confidential client~~
 - GitHub Actions: synth/diff on PR, deploy + `npm test` on main

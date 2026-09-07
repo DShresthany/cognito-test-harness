@@ -2,3 +2,8 @@ node_modules/
 .env
 dist/
 coverage/
+infra/cdk.out/
+infra/node_modules/
+infra/*.js
+infra/*.d.ts
+!infra/jest.config.js
