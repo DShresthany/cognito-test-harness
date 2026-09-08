@@ -72,6 +72,16 @@ phases:
           fi
         done
         echo "Loaded Cognito config from ${STACK_NAME} outputs"
+
+        # Persist for later buildspec commands (child bash exports do not survive).
+        # Integration tests load via dotenv from .env (gitignored).
+        cat > "${CODEBUILD_SRC_DIR}/.env" <<EOF
+AWS_REGION=${AWS_REGION}
+COGNITO_USER_POOL_ID=${COGNITO_USER_POOL_ID}
+COGNITO_CLIENT_ID=${COGNITO_CLIENT_ID}
+COGNITO_CLIENT_SECRET=${COGNITO_CLIENT_SECRET}
+EOF
+        echo "Wrote Cognito env to ${CODEBUILD_SRC_DIR}/.env"
         SCRIPT
 
   build:
