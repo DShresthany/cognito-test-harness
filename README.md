@@ -96,5 +96,22 @@ tests/
 
 ## Roadmap
 
-- ~~CDK stack for the User Pool + confidential client~~
-- GitHub Actions: synth/diff on PR, deploy + `npm test` on main
+Cognito is **test infrastructure** for auth-backed coverage. Suggested order:
+
+1. **Phase 6 – CI (next)**  
+   GitHub Actions merge gate. **PR:** infra Jest + `cdk synth` (+ optional `cdk diff`) **and** `npm test` against the long-lived CDK pool. **Main:** `cdk deploy` if `infra/` changed, then `npm test`. Prefer OIDC IAM role over long-lived keys. No new Cognito stack per PR.
+
+2. **Secrets in AWS**  
+   Move the client secret off CloudFormation plaintext output into Secrets Manager or SSM. Stack outputs ARN/name; CI role reads the secret. Keep `.env` gitignored.
+
+3. **Optional – two envs (`dev` / `ci`)**  
+   After CI works on one stack: `dev` for local experiments; `ci` as the long-lived pool GitHub Actions hits on PRs. Not a full Dev→Staging→Prod pipeline.
+
+4. **Phase 7 – Thin UI (optional)**  
+   Browser demo: `/login` → `POST /login` → `/confirmed` page calling `GET /confirmed`. Secret stays on the server.
+
+5. **Phase 8 – Third-party login (optional)**  
+   Federated IdP (e.g. Google) via Cognito Hosted UI after CI. Keep password YAML tests as the PR gate.
+
+6. **Hygiene**  
+   Delete unused Phase 0 console pool if present; least-privilege IAM; optional billing alert.
