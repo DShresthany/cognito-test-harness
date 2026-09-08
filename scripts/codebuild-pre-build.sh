@@ -12,12 +12,27 @@ SRC_DIR="${CODEBUILD_SRC_DIR:-.}"
 echo "Account=${CDK_DEFAULT_ACCOUNT} Region=${AWS_REGION}"
 echo "Webhook event=${CODEBUILD_WEBHOOK_EVENT:-none} head=${CODEBUILD_WEBHOOK_HEAD_REF:-none}"
 
+stack_out() {
+  aws cloudformation describe-stacks \
+    --stack-name "${STACK_NAME}" \
+    --query "Stacks[0].Outputs[?OutputKey=='${1}'].OutputValue | [0]" \
+    --output text
+}
+
 if [ "${CODEBUILD_WEBHOOK_EVENT:-}" = "PUSH" ] && \
    [ "${CODEBUILD_WEBHOOK_HEAD_REF:-}" = "refs/heads/main" ]; then
   BEFORE="${CODEBUILD_WEBHOOK_PREV_COMMIT:-}"
   AFTER="${CODEBUILD_RESOLVED_SOURCE_VERSION:-}"
   if [ -n "${BEFORE}" ] && [ -n "${AFTER}" ] && \
      git diff --name-only "${BEFORE}" "${AFTER}" | grep -q '^infra/'; then
+    # Keep the real SNS inbox from the live stack (buildspec ALERT_EMAIL is synth-only).
+    LIVE_ALERT="$(stack_out AlertEmail || true)"
+    if [ -n "${LIVE_ALERT}" ] && [ "${LIVE_ALERT}" != "None" ] && [ "${LIVE_ALERT}" != "null" ]; then
+      export ALERT_EMAIL="${LIVE_ALERT}"
+      echo "Using AlertEmail from stack outputs for deploy"
+    else
+      echo "WARN: no AlertEmail stack output; deploy will use buildspec ALERT_EMAIL placeholder"
+    fi
     echo "infra/ changed on main - deploying stack"
     npm run infra:deploy
   else
@@ -26,13 +41,6 @@ if [ "${CODEBUILD_WEBHOOK_EVENT:-}" = "PUSH" ] && \
 else
   echo "Skipping deploy (not a main PUSH)"
 fi
-
-stack_out() {
-  aws cloudformation describe-stacks \
-    --stack-name "${STACK_NAME}" \
-    --query "Stacks[0].Outputs[?OutputKey=='${1}'].OutputValue | [0]" \
-    --output text
-}
 
 COGNITO_USER_POOL_ID="$(stack_out UserPoolId)"
 COGNITO_CLIENT_ID="$(stack_out UserPoolClientId)"

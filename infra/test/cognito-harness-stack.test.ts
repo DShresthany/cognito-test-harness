@@ -42,6 +42,32 @@ test("User Pool, confidential client, CodeBuild, and failure email alerts", () =
 
   template.resourceCountIs("AWS::CodeBuild::Project", 1);
 
+  // Least-privilege: no PowerUser; CDK deploy via AssumeRole; Cognito + CFN outputs scoped.
+  const roles = template.findResources("AWS::IAM::Role");
+  for (const role of Object.values(roles)) {
+    const arns = role.Properties?.ManagedPolicyArns as string[] | undefined;
+    expect(arns?.join(" ") ?? "").not.toMatch(/PowerUserAccess/);
+  }
+
+  const statements = Object.values(template.findResources("AWS::IAM::Policy"))
+    .flatMap(
+      (p) =>
+        (p.Properties?.PolicyDocument?.Statement as Array<{ Sid?: string }>) ??
+        [],
+    )
+    .map((s) => s.Sid)
+    .filter(Boolean);
+
+  expect(statements).toEqual(
+    expect.arrayContaining([
+      "CdkBootstrapAssumeRoles",
+      "CognitoHarnessAdmin",
+      "ReadHarnessStackOutputs",
+      "CdkBootstrapVersion",
+      "StsCallerIdentity",
+    ]),
+  );
+
   template.hasResourceProperties("AWS::SNS::Topic", {
     TopicName: "cognito-test-harness-ci-alerts",
   });
