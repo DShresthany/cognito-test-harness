@@ -6,9 +6,10 @@
   "scripts": {
     "start": "tsx src/server.ts",
     "test": "vitest run",
+    "test:unit": "vitest run tests/secretHash.test.ts tests/randomPassword.test.ts",
     "test:watch": "vitest",
-    "infra:synth": "npm run --prefix infra build && npm exec --prefix infra -- cdk synth",
-    "infra:deploy": "npm run --prefix infra build && npm exec --prefix infra -- cdk deploy --require-approval never",
+    "infra:synth": "npm run build --prefix infra && npm run cdk --prefix infra -- synth",
+    "infra:deploy": "npm run build --prefix infra && npm run cdk --prefix infra -- deploy --require-approval never",
     "infra:test": "npm test --prefix infra"
   },
   "keywords": [],
