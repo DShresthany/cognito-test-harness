@@ -1,6 +1,6 @@
 # Cognito test harness
 
-TypeScript/Vitest harness for a **Cognito Traditional web app** (confidential client). The **server** holds the app client secret, computes `SECRET_HASH`, and authenticates with `AdminInitiateAuth`. Tests cover YAML-driven user provisioning, SDK login, and a stub HTTP API. Cognito infrastructure is defined with **CDK** under `infra/`.
+TypeScript/Vitest harness for a **Cognito Traditional web app** (confidential client). The **server** holds the app client secret, computes `SECRET_HASH`, and authenticates with `AdminInitiateAuth`. Tests cover YAML-driven user provisioning, SDK login, and a stub HTTP API. Cognito infrastructure and **CodeBuild CI** are defined with **CDK** under `infra/`.
 
 ## What this demonstrates
 
@@ -10,6 +10,7 @@ TypeScript/Vitest harness for a **Cognito Traditional web app** (confidential cl
 - Unique users per run (`emailPrefix+runId@gmail.com`) + random passwords + `AdminDeleteUser` cleanup
 - Stub API: `POST /login` (secret stays on the server) and `GET /confirmed` (Cognito JWT verify + confirmation payload)
 - CDK-owned User Pool + confidential client (reproducible deploy)
+- AWS CodeBuild CI (PR gate + main deploy-if-`infra/`) with an IAM service role (no GitHub Actions AWS keys)
 
 This pool requires **Username to be an email**. Uniqueness comes from the Gmail `+runId` alias, not `user-${uuid}`.
 
@@ -18,10 +19,11 @@ This pool requires **Username to be an email**. Uniqueness comes from the Gmail 
 - Node.js 20+
 - AWS CLI profile that can call Cognito admin APIs and deploy CloudFormation (this repo uses `AWS_PROFILE=cognito-dev`)
 - CDK bootstrap once per account/region (see Infra below)
+- GitHub PAT in Secrets Manager for CodeBuild (see CI below)
 
 ## Infra (CDK)
 
-Stack: `CognitoHarnessStack` in [`infra/`](infra/) — User Pool (email sign-in, no self-registration) + confidential app client with `ALLOW_ADMIN_USER_PASSWORD_AUTH`.
+Stack: `CognitoHarnessStack` in [`infra/`](infra/) — User Pool (email sign-in, no self-registration) + confidential app client with `ALLOW_ADMIN_USER_PASSWORD_AUTH` + CodeBuild project `cognito-test-harness-ci`.
 
 ```bash
 cd infra
@@ -61,28 +63,35 @@ cp .env.example .env
 
 npm install
 npm test          # full suite (needs Cognito env)
-npm run test:unit # CI slice 1 — no Cognito
+npm run test:unit # no Cognito
 ```
 
-### CI (Phase 6)
+### CI (Phase 6) — AWS CodeBuild
 
-PRs to `main` run [`.github/workflows/pr-ci.yml`](.github/workflows/pr-ci.yml):
+All automated checks run in **CodeBuild** (not GitHub Actions). Project: `cognito-test-harness-ci`. Spec: [`buildspec.yml`](buildspec.yml).
 
-1. **Infra + unit** — infra Jest, `cdk synth`, `npm run test:unit` (no Cognito)
-2. **Cognito integration** — full `npm test` against the long-lived CDK pool
-
-Configure these **repository secrets** (Settings → Secrets and variables → Actions) from your IAM user + CDK stack outputs:
-
-| Secret | Purpose |
+| Trigger | What runs |
 |---|---|
-| `AWS_ACCESS_KEY_ID` | IAM user that can call Cognito Admin APIs on the harness pool |
-| `AWS_SECRET_ACCESS_KEY` | Matching secret key |
-| `AWS_REGION` | e.g. `us-east-1` |
-| `COGNITO_USER_POOL_ID` | Stack output `UserPoolId` |
-| `COGNITO_CLIENT_ID` | Stack output `UserPoolClientId` |
-| `COGNITO_CLIENT_SECRET` | Stack output `UserPoolClientSecret` |
+| **Pull request** (open/sync/reopen → `main`) | infra Jest → `cdk synth` → `test:unit` → full `npm test` (**no** deploy) |
+| **Push to `main`** | If `infra/` changed → `cdk deploy`, then the same checks |
 
-Do not set `AWS_PROFILE` in CI — the workflow uses access keys via `aws-actions/configure-aws-credentials`. Prefer migrating to **OIDC** (no long-lived keys) as a later Phase 6 hardening step.
+Cognito env vars are **read from CloudFormation stack outputs** at the start of each build so CI stays aligned if the pool/client is replaced. The CodeBuild service role calls Cognito (no AWS access keys in GitHub).
+
+#### One-time: GitHub PAT for CodeBuild
+
+Create a fine-grained or classic PAT with access to this private repo (`repo` / contents + webhooks as required). Store it in Secrets Manager **before** (or as part of) deploy:
+
+```bash
+aws secretsmanager create-secret \
+  --name cognito-test-harness/github-pat \
+  --secret-string 'YOUR_GITHUB_PAT' \
+  --profile cognito-dev \
+  --region us-east-1
+```
+
+Then `npm run infra:deploy`. CodeBuild will register a GitHub webhook and report status checks on PRs.
+
+You can remove obsolete **GitHub Actions** repository secrets (`AWS_ACCESS_KEY_ID`, etc.) once CodeBuild is green — they are unused.
 
 Optional local server (not required for tests; Vitest uses in-process `app.request()`):
 
@@ -93,7 +102,8 @@ npm start   # http://localhost:3000
 ## Layout
 
 ```text
-infra/                     CDK app (CognitoHarnessStack)
+buildspec.yml              CodeBuild CI phases
+infra/                     CDK app (Cognito + CodeBuild)
 src/
   secretHash.ts            HMAC helper
   cognitoAuth.ts           Cognito client + env helpers
@@ -114,20 +124,20 @@ tests/
 - Do not log generated passwords
 - Keep this GitHub repo **private** until you are sure no IDs/secrets leaked
 - Prefer rotating the app client secret if it was ever exposed
-- CI uses GitHub Actions secrets for Cognito + IAM keys today; prefer OIDC later
+- CodeBuild uses an IAM service role; GitHub holds a PAT only in Secrets Manager for clone/webhooks
 
 ## Roadmap
 
 Cognito is **test infrastructure** for auth-backed coverage. Suggested order:
 
-1. **Phase 6 – CI (in progress)**  
-   GitHub Actions merge gate. **Done (slice 1):** infra Jest + `cdk synth` + `npm run test:unit`. **Done (slice 2):** Cognito integration job runs full `npm test` against the long-lived CDK pool via GitHub secrets (IAM access keys). **Next:** prefer OIDC IAM role over long-lived keys; optional `cdk diff`; on `main`, `cdk deploy` if `infra/` changed then `npm test`. No new Cognito stack per PR.
+1. **Phase 6 – CI**  
+   **Done:** AWS CodeBuild for PR + main (`buildspec.yml` + CDK project). PR runs full checks without deploy; main deploys when `infra/` changes then re-tests. Cognito config loaded from stack outputs (no GitHub Cognito secrets required for CI). **Optional polish:** tighten CodeBuild IAM below PowerUser; move GitHub PAT rotation notes.
 
 2. **Secrets in AWS**  
-   Move the client secret off CloudFormation plaintext output into Secrets Manager or SSM. Stack outputs ARN/name; CI role reads the secret. Keep `.env` gitignored.
+   Move client secret (and preferably pool id / client id / region) into Secrets Manager or SSM, updated on deploy. CI role reads them each run so GitHub/static config cannot drift after a replacing deploy. Stop plaintext client secret in CloudFormation outputs. Keep `.env` gitignored for local use.
 
 3. **Optional – two envs (`dev` / `ci`)**  
-   After CI works on one stack: `dev` for local experiments; `ci` as the long-lived pool GitHub Actions hits on PRs. Not a full Dev→Staging→Prod pipeline.
+   After CI works on one stack: `dev` for local experiments; `ci` as the long-lived pool CodeBuild hits on PRs. Not a full Dev→Staging→Prod pipeline.
 
 4. **Phase 7 – Thin UI (optional)**  
    Browser demo: `/login` → `POST /login` → `/confirmed` page calling `GET /confirmed`. Secret stays on the server.
