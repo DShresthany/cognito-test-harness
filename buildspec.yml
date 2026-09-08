@@ -79,3 +79,5 @@ cache:
   paths:
     - node_modules/**/*
     - infra/node_modules/**/*
+
+# CodeBuild smoke trigger
