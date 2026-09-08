@@ -60,8 +60,29 @@ cp .env.example .env
 # fill in .env from CDK outputs — never commit it
 
 npm install
-npm test
+npm test          # full suite (needs Cognito env)
+npm run test:unit # CI slice 1 — no Cognito
 ```
+
+### CI (Phase 6)
+
+PRs to `main` run [`.github/workflows/pr-ci.yml`](.github/workflows/pr-ci.yml):
+
+1. **Infra + unit** — infra Jest, `cdk synth`, `npm run test:unit` (no Cognito)
+2. **Cognito integration** — full `npm test` against the long-lived CDK pool
+
+Configure these **repository secrets** (Settings → Secrets and variables → Actions) from your IAM user + CDK stack outputs:
+
+| Secret | Purpose |
+|---|---|
+| `AWS_ACCESS_KEY_ID` | IAM user that can call Cognito Admin APIs on the harness pool |
+| `AWS_SECRET_ACCESS_KEY` | Matching secret key |
+| `AWS_REGION` | e.g. `us-east-1` |
+| `COGNITO_USER_POOL_ID` | Stack output `UserPoolId` |
+| `COGNITO_CLIENT_ID` | Stack output `UserPoolClientId` |
+| `COGNITO_CLIENT_SECRET` | Stack output `UserPoolClientSecret` |
+
+Do not set `AWS_PROFILE` in CI — the workflow uses access keys via `aws-actions/configure-aws-credentials`. Prefer migrating to **OIDC** (no long-lived keys) as a later Phase 6 hardening step.
 
 Optional local server (not required for tests; Vitest uses in-process `app.request()`):
 
@@ -93,13 +114,14 @@ tests/
 - Do not log generated passwords
 - Keep this GitHub repo **private** until you are sure no IDs/secrets leaked
 - Prefer rotating the app client secret if it was ever exposed
+- CI uses GitHub Actions secrets for Cognito + IAM keys today; prefer OIDC later
 
 ## Roadmap
 
 Cognito is **test infrastructure** for auth-backed coverage. Suggested order:
 
-1. **Phase 6 – CI (next)**  
-   GitHub Actions merge gate. **PR:** infra Jest + `cdk synth` (+ optional `cdk diff`) **and** `npm test` against the long-lived CDK pool. **Main:** `cdk deploy` if `infra/` changed, then `npm test`. Prefer OIDC IAM role over long-lived keys. No new Cognito stack per PR.
+1. **Phase 6 – CI (in progress)**  
+   GitHub Actions merge gate. **Done (slice 1):** infra Jest + `cdk synth` + `npm run test:unit`. **Done (slice 2):** Cognito integration job runs full `npm test` against the long-lived CDK pool via GitHub secrets (IAM access keys). **Next:** prefer OIDC IAM role over long-lived keys; optional `cdk diff`; on `main`, `cdk deploy` if `infra/` changed then `npm test`. No new Cognito stack per PR.
 
 2. **Secrets in AWS**  
    Move the client secret off CloudFormation plaintext output into Secrets Manager or SSM. Stack outputs ARN/name; CI role reads the secret. Keep `.env` gitignored.
