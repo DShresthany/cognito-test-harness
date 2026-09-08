@@ -3,8 +3,13 @@ import * as cognito from "aws-cdk-lib/aws-cognito";
 import { Construct } from "constructs";
 import { HarnessCodeBuild } from "./harness-codebuild";
 
+export interface CognitoHarnessStackProps extends cdk.StackProps {
+  /** Inbox for CodeBuild failure emails (SNS subscription). */
+  alertEmail: string;
+}
+
 export class CognitoHarnessStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+  constructor(scope: Construct, id: string, props: CognitoHarnessStackProps) {
     super(scope, id, props);
 
     const userPool = new cognito.UserPool(this, "HarnessUserPool", {
@@ -45,6 +50,7 @@ export class CognitoHarnessStack extends cdk.Stack {
 
     new HarnessCodeBuild(this, "Ci", {
       userPool,
+      alertEmail: props.alertEmail,
     });
 
     new cdk.CfnOutput(this, "UserPoolId", {
