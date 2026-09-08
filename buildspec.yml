@@ -20,69 +20,8 @@ phases:
 
   pre_build:
     commands:
-      - |
-        # Use bash explicitly (pipefail/nounset are not portable under /bin/sh).
-        /bin/bash -euo pipefail <<'SCRIPT'
-        export AWS_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}"
-        CDK_DEFAULT_ACCOUNT="$(aws sts get-caller-identity --query Account --output text)"
-        export CDK_DEFAULT_ACCOUNT
-        export CDK_DEFAULT_REGION="${AWS_REGION}"
-        echo "Account=${CDK_DEFAULT_ACCOUNT} Region=${AWS_REGION}"
-        echo "Webhook event=${CODEBUILD_WEBHOOK_EVENT:-none} head=${CODEBUILD_WEBHOOK_HEAD_REF:-none}"
-
-        if [ "${CODEBUILD_WEBHOOK_EVENT:-}" = "PUSH" ] && \
-           [ "${CODEBUILD_WEBHOOK_HEAD_REF:-}" = "refs/heads/main" ]; then
-          BEFORE="${CODEBUILD_WEBHOOK_PREV_COMMIT:-}"
-          AFTER="${CODEBUILD_RESOLVED_SOURCE_VERSION:-}"
-          if [ -n "${BEFORE}" ] && [ -n "${AFTER}" ] && \
-             git diff --name-only "${BEFORE}" "${AFTER}" | grep -q '^infra/'; then
-            echo "infra/ changed on main - deploying stack"
-            npm run infra:deploy
-          else
-            echo "No infra/ deploy needed on this main push"
-          fi
-        else
-          echo "Skipping deploy (not a main PUSH)"
-        fi
-
-        # Prefer JMESPath over jq so we do not depend on jq being installed.
-        stack_out() {
-          aws cloudformation describe-stacks \
-            --stack-name "${STACK_NAME}" \
-            --query "Stacks[0].Outputs[?OutputKey=='${1}'].OutputValue | [0]" \
-            --output text
-        }
-
-        export COGNITO_USER_POOL_ID
-        export COGNITO_CLIENT_ID
-        export COGNITO_CLIENT_SECRET
-        COGNITO_USER_POOL_ID="$(stack_out UserPoolId)"
-        COGNITO_CLIENT_ID="$(stack_out UserPoolClientId)"
-        COGNITO_CLIENT_SECRET="$(stack_out UserPoolClientSecret)"
-        REGION_FROM_STACK="$(stack_out Region)"
-        if [ -n "${REGION_FROM_STACK}" ] && [ "${REGION_FROM_STACK}" != "None" ]; then
-          export AWS_REGION="${REGION_FROM_STACK}"
-        fi
-
-        for var in COGNITO_USER_POOL_ID COGNITO_CLIENT_ID COGNITO_CLIENT_SECRET AWS_REGION; do
-          eval "val=\${$var}"
-          if [ -z "${val}" ] || [ "${val}" = "None" ] || [ "${val}" = "null" ]; then
-            echo "Missing stack output mapped to ${var}"
-            exit 1
-          fi
-        done
-        echo "Loaded Cognito config from ${STACK_NAME} outputs"
-
-        # Persist for later buildspec commands (child bash exports do not survive).
-        # Integration tests load via dotenv from .env (gitignored).
-        cat > "${CODEBUILD_SRC_DIR}/.env" <<EOF
-AWS_REGION=${AWS_REGION}
-COGNITO_USER_POOL_ID=${COGNITO_USER_POOL_ID}
-COGNITO_CLIENT_ID=${COGNITO_CLIENT_ID}
-COGNITO_CLIENT_SECRET=${COGNITO_CLIENT_SECRET}
-EOF
-        echo "Wrote Cognito env to ${CODEBUILD_SRC_DIR}/.env"
-        SCRIPT
+      - chmod +x scripts/codebuild-pre-build.sh
+      - ./scripts/codebuild-pre-build.sh
 
   build:
     commands:
