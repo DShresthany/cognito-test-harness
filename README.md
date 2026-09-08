@@ -88,7 +88,7 @@ export ALERT_EMAIL=you@example.com
 npm run infra:deploy
 ```
 
-After deploy, **confirm the AWS subscription email** (Subject like "AWS Notification - Subscription Confirmation") or you will not receive alerts.
+After deploy, **confirm the AWS subscription email** (Subject like "AWS Notification - Subscription Confirmation") or you will not receive alerts. On later main deploys, CodeBuild reuses the live stack `AlertEmail` output so the synth placeholder does not overwrite your inbox.
 
 #### One-time: GitHub PAT for CodeBuild
 
@@ -144,14 +144,14 @@ tests/
 - Do not log generated passwords
 - Keep this GitHub repo **private** until you are sure no IDs/secrets leaked
 - Prefer rotating the app client secret if it was ever exposed
-- CodeBuild uses an IAM service role; GitHub holds a PAT only in Secrets Manager for clone/webhooks
+- CodeBuild uses a **least-privilege** IAM service role (pool-scoped Cognito Admin + `sts:AssumeRole` into CDK bootstrap roles — not PowerUser); GitHub PAT lives only in Secrets Manager for clone/webhooks
 
 ## Roadmap
 
 Cognito is **test infrastructure** for auth-backed coverage. Suggested order:
 
 1. **Phase 6 – CI**  
-   **Done:** AWS CodeBuild for PR + main (`buildspec.yml` + CDK project). PR runs full checks without deploy; main deploys when `infra/` changes then re-tests. Cognito config loaded from stack outputs. **Failure email:** EventBridge → SNS on CodeBuild FAILED/FAULT/STOPPED/TIMED_OUT (confirm SNS subscription after deploy with `ALERT_EMAIL`). **Optional polish:** tighten CodeBuild IAM below PowerUser.
+   **Done:** AWS CodeBuild for PR + main (`buildspec.yml` + CDK project). PR runs full checks without deploy; main deploys when `infra/` changes then re-tests. Cognito config loaded from stack outputs. **Failure email:** EventBridge → SNS on CodeBuild FAILED/FAULT/STOPPED/TIMED_OUT (confirm SNS subscription after deploy with `ALERT_EMAIL`). **CodeBuild IAM:** least-privilege (no PowerUser); Cognito scoped to the harness pool; CDK deploy via bootstrap `AssumeRole`.
 
 2. **Secrets in AWS**  
    Move client secret (and preferably pool id / client id / region) into Secrets Manager or SSM, updated on deploy. CI role reads them each run so GitHub/static config cannot drift after a replacing deploy. Stop plaintext client secret in CloudFormation outputs. Keep `.env` gitignored for local use.
@@ -166,4 +166,4 @@ Cognito is **test infrastructure** for auth-backed coverage. Suggested order:
    Federated IdP (e.g. Google) via Cognito Hosted UI after CI. Keep password YAML tests as the PR gate.
 
 6. **Hygiene**  
-   Delete unused Phase 0 console pool if present; least-privilege IAM; optional billing alert.
+   Delete unused Phase 0 console pool if present; optional billing alert; further IAM narrowing if needed.
