@@ -1,11 +1,17 @@
 import * as cdk from "aws-cdk-lib/core";
 import * as codebuild from "aws-cdk-lib/aws-codebuild";
 import * as cognito from "aws-cdk-lib/aws-cognito";
+import * as events from "aws-cdk-lib/aws-events";
+import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as iam from "aws-cdk-lib/aws-iam";
+import * as sns from "aws-cdk-lib/aws-sns";
+import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
 import { Construct } from "constructs";
 
 export interface HarnessCodeBuildProps {
   userPool: cognito.IUserPool;
+  /** Email for CodeBuild failure alerts (SNS). Confirm the subscription in your inbox after deploy. */
+  alertEmail: string;
   /** GitHub owner (user or org). */
   githubOwner?: string;
   /** GitHub repository name. */
@@ -19,6 +25,7 @@ export interface HarnessCodeBuildProps {
  */
 export class HarnessCodeBuild extends Construct {
   public readonly project: codebuild.Project;
+  public readonly alertTopic: sns.Topic;
 
   constructor(scope: Construct, id: string, props: HarnessCodeBuildProps) {
     super(scope, id);
@@ -46,7 +53,17 @@ export class HarnessCodeBuild extends Construct {
     role.addToPolicy(
       new iam.PolicyStatement({
         sid: "CdkPassRoles",
-        actions: ["iam:PassRole", "iam:GetRole", "iam:CreateRole", "iam:AttachRolePolicy", "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:DetachRolePolicy", "iam:DeleteRole", "iam:TagRole"],
+        actions: [
+          "iam:PassRole",
+          "iam:GetRole",
+          "iam:CreateRole",
+          "iam:AttachRolePolicy",
+          "iam:PutRolePolicy",
+          "iam:DeleteRolePolicy",
+          "iam:DetachRolePolicy",
+          "iam:DeleteRole",
+          "iam:TagRole",
+        ],
         resources: ["*"],
       }),
     );
@@ -98,6 +115,38 @@ export class HarnessCodeBuild extends Construct {
       timeout: cdk.Duration.minutes(30),
     });
 
+    this.alertTopic = new sns.Topic(this, "AlertTopic", {
+      displayName: "cognito-test-harness-ci failures",
+      topicName: "cognito-test-harness-ci-alerts",
+    });
+    this.alertTopic.addSubscription(
+      new subscriptions.EmailSubscription(props.alertEmail),
+    );
+
+    new events.Rule(this, "BuildFailedRule", {
+      description:
+        "Email when cognito-test-harness-ci fails, faults, stops, or times out",
+      eventPattern: {
+        source: ["aws.codebuild"],
+        detailType: ["CodeBuild Build State Change"],
+        detail: {
+          "build-status": ["FAILED", "FAULT", "STOPPED", "TIMED_OUT"],
+          "project-name": [this.project.projectName],
+        },
+      },
+      targets: [
+        new targets.SnsTopic(this.alertTopic, {
+          message: events.RuleTargetInput.fromMultilineText(
+            [
+              "CodeBuild build did not succeed.",
+              `Project: ${this.project.projectName}`,
+              "Open the CodeBuild console (us-east-1) for logs.",
+            ].join("\n"),
+          ),
+        }),
+      ],
+    });
+
     new cdk.CfnOutput(this, "CodeBuildProjectName", {
       value: this.project.projectName,
       description: "CodeBuild project for PR/main CI",
@@ -106,6 +155,17 @@ export class HarnessCodeBuild extends Construct {
     new cdk.CfnOutput(this, "CodeBuildProjectArn", {
       value: this.project.projectArn,
       description: "CodeBuild project ARN",
+    });
+
+    new cdk.CfnOutput(this, "AlertTopicArn", {
+      value: this.alertTopic.topicArn,
+      description: "SNS topic for CodeBuild failure emails",
+    });
+
+    new cdk.CfnOutput(this, "AlertEmail", {
+      value: props.alertEmail,
+      description:
+        "Confirm the SNS subscription email AWS sends after deploy",
     });
   }
 }

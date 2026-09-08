@@ -1,11 +1,12 @@
 import * as cdk from "aws-cdk-lib/core";
-import { Template } from "aws-cdk-lib/assertions";
+import { Match, Template } from "aws-cdk-lib/assertions";
 import { CognitoHarnessStack } from "../lib/cognito-harness-stack";
 
-test("User Pool and confidential client with admin password auth", () => {
+test("User Pool, confidential client, CodeBuild, and failure email alerts", () => {
   const app = new cdk.App();
   const stack = new CognitoHarnessStack(app, "TestStack", {
     env: { account: "111111111111", region: "us-east-1" },
+    alertEmail: "ci-alerts@example.com",
   });
   const template = Template.fromStack(stack);
 
@@ -40,4 +41,24 @@ test("User Pool and confidential client with admin password auth", () => {
   });
 
   template.resourceCountIs("AWS::CodeBuild::Project", 1);
+
+  template.hasResourceProperties("AWS::SNS::Topic", {
+    TopicName: "cognito-test-harness-ci-alerts",
+  });
+
+  template.hasResourceProperties("AWS::SNS::Subscription", {
+    Protocol: "email",
+    Endpoint: "ci-alerts@example.com",
+  });
+
+  template.hasResourceProperties("AWS::Events::Rule", {
+    EventPattern: {
+      source: ["aws.codebuild"],
+      "detail-type": ["CodeBuild Build State Change"],
+      detail: {
+        "build-status": ["FAILED", "FAULT", "STOPPED", "TIMED_OUT"],
+        "project-name": Match.anyValue(),
+      },
+    },
+  });
 });
