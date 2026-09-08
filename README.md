@@ -77,6 +77,19 @@ All automated checks run in **CodeBuild** (not GitHub Actions). Project: `cognit
 
 Cognito env vars are **read from CloudFormation stack outputs** at the start of each build so CI stays aligned if the pool/client is replaced. The CodeBuild service role calls Cognito (no AWS access keys in GitHub).
 
+#### Failure email (SNS)
+
+CodeBuild failures publish to SNS topic `cognito-test-harness-ci-alerts` via EventBridge. Deploy with your inbox:
+
+```bash
+export AWS_PROFILE=cognito-dev
+export AWS_REGION=us-east-1
+export ALERT_EMAIL=you@example.com
+npm run infra:deploy
+```
+
+After deploy, **confirm the AWS subscription email** (Subject like "AWS Notification - Subscription Confirmation") or you will not receive alerts.
+
 #### One-time: GitHub PAT for CodeBuild
 
 Create a fine-grained or classic PAT with access to this private repo (`repo` / contents + webhooks as required). Store it in Secrets Manager **before** (or as part of) deploy:
@@ -89,7 +102,14 @@ aws secretsmanager create-secret \
   --region us-east-1
 ```
 
-Then `npm run infra:deploy`. CodeBuild will register a GitHub webhook and report status checks on PRs.
+Then:
+
+```bash
+export ALERT_EMAIL=you@example.com   # required for SNS failure alerts
+npm run infra:deploy
+```
+
+CodeBuild will register a GitHub webhook and report status checks on PRs. Confirm the SNS subscription email after deploy.
 
 You can remove obsolete **GitHub Actions** repository secrets (`AWS_ACCESS_KEY_ID`, etc.) once CodeBuild is green — they are unused.
 
@@ -131,7 +151,7 @@ tests/
 Cognito is **test infrastructure** for auth-backed coverage. Suggested order:
 
 1. **Phase 6 – CI**  
-   **Done:** AWS CodeBuild for PR + main (`buildspec.yml` + CDK project). PR runs full checks without deploy; main deploys when `infra/` changes then re-tests. Cognito config loaded from stack outputs (no GitHub Cognito secrets required for CI). **Optional polish:** tighten CodeBuild IAM below PowerUser; move GitHub PAT rotation notes.
+   **Done:** AWS CodeBuild for PR + main (`buildspec.yml` + CDK project). PR runs full checks without deploy; main deploys when `infra/` changes then re-tests. Cognito config loaded from stack outputs. **Failure email:** EventBridge → SNS on CodeBuild FAILED/FAULT/STOPPED/TIMED_OUT (confirm SNS subscription after deploy with `ALERT_EMAIL`). **Optional polish:** tighten CodeBuild IAM below PowerUser.
 
 2. **Secrets in AWS**  
    Move client secret (and preferably pool id / client id / region) into Secrets Manager or SSM, updated on deploy. CI role reads them each run so GitHub/static config cannot drift after a replacing deploy. Stop plaintext client secret in CloudFormation outputs. Keep `.env` gitignored for local use.

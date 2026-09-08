@@ -7,6 +7,6 @@ See the root [README](../README.md) for bootstrap, GitHub PAT secret, deploy, an
 ```bash
 npm install
 npx cdk synth --profile cognito-dev
-npx cdk deploy --profile cognito-dev
+ALERT_EMAIL=you@example.com npx cdk deploy --profile cognito-dev
 npm test
 ```
