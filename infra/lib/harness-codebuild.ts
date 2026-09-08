@@ -22,6 +22,9 @@ export interface HarnessCodeBuildProps {
  * CodeBuild project for Phase 6 CI (PR gate + main deploy-if-infra).
  * Requires a GitHub PAT in Secrets Manager: cognito-test-harness/github-pat
  * (repo + admin:repo_hook) so CodeBuild can clone the private repo and create webhooks.
+ *
+ * Service role is least-privilege (no PowerUser): pool-scoped Cognito Admin,
+ * DescribeStacks for outputs, and sts:AssumeRole into default CDK bootstrap roles.
  */
 export class HarnessCodeBuild extends Construct {
   public readonly project: codebuild.Project;
@@ -43,32 +46,62 @@ export class HarnessCodeBuild extends Construct {
     const role = new iam.Role(this, "ServiceRole", {
       assumedBy: new iam.ServicePrincipal("codebuild.amazonaws.com"),
       description:
-        "CodeBuild role for cognito-test-harness CI (Cognito Admin + CDK deploy)",
+        "Least-privilege CodeBuild role: Cognito Admin on harness pool + CDK deploy via bootstrap AssumeRole",
     });
 
-    // Learning-friendly: PowerUser covers CFN/S3/Cognito; PassRole for CDK bootstrap roles.
-    role.addManagedPolicy(
-      iam.ManagedPolicy.fromAwsManagedPolicyName("PowerUserAccess"),
-    );
+    const stack = cdk.Stack.of(this);
+    const account = stack.account;
+    const region = stack.region;
+    /** Default CDK bootstrap qualifier (`cdk bootstrap` without --qualifier). */
+    const bootstrapQualifier = "hnb659fds";
+    const cdkBootstrapRole = (name: string) =>
+      `arn:aws:iam::${account}:role/cdk-${bootstrapQualifier}-${name}-${account}-${region}`;
+
+    // Identity / stack outputs (pre_build.sh) — not via assumed CDK roles.
     role.addToPolicy(
       new iam.PolicyStatement({
-        sid: "CdkPassRoles",
-        actions: [
-          "iam:PassRole",
-          "iam:GetRole",
-          "iam:CreateRole",
-          "iam:AttachRolePolicy",
-          "iam:PutRolePolicy",
-          "iam:DeleteRolePolicy",
-          "iam:DetachRolePolicy",
-          "iam:DeleteRole",
-          "iam:TagRole",
-        ],
+        sid: "StsCallerIdentity",
+        actions: ["sts:GetCallerIdentity"],
         resources: ["*"],
       }),
     );
+    role.addToPolicy(
+      new iam.PolicyStatement({
+        sid: "ReadHarnessStackOutputs",
+        actions: [
+          "cloudformation:DescribeStacks",
+          "cloudformation:ListStackResources",
+        ],
+        resources: [
+          `arn:aws:cloudformation:${region}:${account}:stack/CognitoHarnessStack/*`,
+        ],
+      }),
+    );
 
-    // Explicit pool-scoped Cognito Admin (documents intent even under PowerUser).
+    // CDK CLI: read bootstrap version, then AssumeRole into toolkit roles (those roles do CFN/S3/ECR).
+    role.addToPolicy(
+      new iam.PolicyStatement({
+        sid: "CdkBootstrapVersion",
+        actions: ["ssm:GetParameter"],
+        resources: [
+          `arn:aws:ssm:${region}:${account}:parameter/cdk-bootstrap/${bootstrapQualifier}/version`,
+        ],
+      }),
+    );
+    role.addToPolicy(
+      new iam.PolicyStatement({
+        sid: "CdkBootstrapAssumeRoles",
+        actions: ["sts:AssumeRole"],
+        resources: [
+          cdkBootstrapRole("deploy-role"),
+          cdkBootstrapRole("file-publishing-role"),
+          cdkBootstrapRole("image-publishing-role"),
+          cdkBootstrapRole("lookup-role"),
+        ],
+      }),
+    );
+
+    // Vitest / CognitoLoginManager — scoped to this User Pool only.
     role.addToPolicy(
       new iam.PolicyStatement({
         sid: "CognitoHarnessAdmin",
