@@ -1,6 +1,7 @@
 import * as cdk from "aws-cdk-lib/core";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import { Construct } from "constructs";
+import { HarnessCodeBuild } from "./harness-codebuild";
 
 export class CognitoHarnessStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -40,6 +41,10 @@ export class CognitoHarnessStack extends cdk.Stack {
       },
       disableOAuth: true,
       preventUserExistenceErrors: true,
+    });
+
+    new HarnessCodeBuild(this, "Ci", {
+      userPool,
     });
 
     new cdk.CfnOutput(this, "UserPoolId", {

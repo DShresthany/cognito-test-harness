@@ -34,4 +34,10 @@ test("User Pool and confidential client with admin password auth", () => {
       "ALLOW_REFRESH_TOKEN_AUTH",
     ],
   });
+
+  template.hasResourceProperties("AWS::CodeBuild::Project", {
+    Name: "cognito-test-harness-ci",
+  });
+
+  template.resourceCountIs("AWS::CodeBuild::Project", 1);
 });
