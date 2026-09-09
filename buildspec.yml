@@ -3,10 +3,12 @@ version: 0.2
 # Phase 6 — all CI on CodeBuild
 # PR webhook: Jest + synth + unit + Cognito npm test (no deploy)
 # main PUSH: deploy if infra/ changed, then the same checks
+# Cognito config (incl. client secret) loaded from Secrets Manager in pre_build
 
 env:
   variables:
     STACK_NAME: CognitoHarnessStack
+    COGNITO_CONFIG_SECRET_NAME: cognito-test-harness/cognito
     NODE_OPTIONS: --max-old-space-size=4096
     # Needed so `cdk synth` in CI can instantiate the stack (not used for live alerts).
     ALERT_EMAIL: codebuild-synth-placeholder@example.com

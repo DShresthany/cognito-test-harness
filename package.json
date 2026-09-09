@@ -10,7 +10,8 @@
     "test:watch": "vitest",
     "infra:synth": "npm run build --prefix infra && npm run cdk --prefix infra -- synth",
     "infra:deploy": "npm run build --prefix infra && npm run cdk --prefix infra -- deploy --require-approval never",
-    "infra:test": "npm test --prefix infra"
+    "infra:test": "npm test --prefix infra",
+    "env:pull": "bash scripts/env-pull.sh"
   },
   "keywords": [],
   "author": "",
