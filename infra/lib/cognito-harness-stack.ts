@@ -73,6 +73,13 @@ export class CognitoHarnessStack extends cdk.Stack {
       alertEmail: props.alertEmail,
     });
 
+    // Stable OutputKey "AlertEmail" for CI (nested Ci*AlertEmail* keys break exact match).
+    new cdk.CfnOutput(this, "AlertEmail", {
+      value: props.alertEmail,
+      description:
+        "SNS failure-alert inbox; CodeBuild main deploy must reuse this (not the synth placeholder)",
+    });
+
     new cdk.CfnOutput(this, "UserPoolId", {
       value: userPool.userPoolId,
       description: "Map to COGNITO_USER_POOL_ID (also in Secrets Manager)",
