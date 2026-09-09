@@ -4,12 +4,15 @@ import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as events from "aws-cdk-lib/aws-events";
 import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as iam from "aws-cdk-lib/aws-iam";
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import * as sns from "aws-cdk-lib/aws-sns";
 import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
 import { Construct } from "constructs";
 
 export interface HarnessCodeBuildProps {
   userPool: cognito.IUserPool;
+  /** Cognito harness config (pool/client/secret/region) in Secrets Manager. */
+  cognitoConfigSecret: secretsmanager.ISecret;
   /** Email for CodeBuild failure alerts (SNS). Confirm the subscription in your inbox after deploy. */
   alertEmail: string;
   /** GitHub owner (user or org). */
@@ -24,7 +27,8 @@ export interface HarnessCodeBuildProps {
  * (repo + admin:repo_hook) so CodeBuild can clone the private repo and create webhooks.
  *
  * Service role is least-privilege (no PowerUser): pool-scoped Cognito Admin,
- * DescribeStacks for outputs, and sts:AssumeRole into default CDK bootstrap roles.
+ * DescribeStacks for outputs, Cognito config secret read, and sts:AssumeRole into
+ * default CDK bootstrap roles.
  */
 export class HarnessCodeBuild extends Construct {
   public readonly project: codebuild.Project;
@@ -118,6 +122,9 @@ export class HarnessCodeBuild extends Construct {
         resources: [props.userPool.userPoolArn],
       }),
     );
+
+    // Slice 1: CI may read Cognito config from SM (Slice 2 wires pre_build to use it).
+    props.cognitoConfigSecret.grantRead(role);
 
     this.project = new codebuild.Project(this, "Project", {
       projectName: "cognito-test-harness-ci",

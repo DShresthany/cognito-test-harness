@@ -42,6 +42,14 @@ test("User Pool, confidential client, CodeBuild, and failure email alerts", () =
 
   template.resourceCountIs("AWS::CodeBuild::Project", 1);
 
+  template.hasResourceProperties("AWS::SecretsManager::Secret", {
+    Name: "cognito-test-harness/cognito",
+  });
+
+  // Client secret must not appear as a plaintext stack output.
+  expect(template.findOutputs("*").UserPoolClientSecret).toBeUndefined();
+  expect(template.findOutputs("*").CognitoConfigSecretName).toBeDefined();
+
   // Least-privilege: no PowerUser; CDK deploy via AssumeRole; Cognito + CFN outputs scoped.
   const roles = template.findResources("AWS::IAM::Role");
   for (const role of Object.values(roles)) {

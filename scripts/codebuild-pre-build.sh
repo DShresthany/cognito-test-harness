@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CodeBuild pre_build: optional main deploy + write Cognito env for Vitest (.env).
+# CodeBuild pre_build: optional main deploy + load Cognito env from Secrets Manager (.env).
 set -euo pipefail
 
 export AWS_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}"
@@ -7,6 +7,7 @@ CDK_DEFAULT_ACCOUNT="$(aws sts get-caller-identity --query Account --output text
 export CDK_DEFAULT_ACCOUNT
 export CDK_DEFAULT_REGION="${AWS_REGION}"
 STACK_NAME="${STACK_NAME:-CognitoHarnessStack}"
+COGNITO_CONFIG_SECRET_NAME="${COGNITO_CONFIG_SECRET_NAME:-cognito-test-harness/cognito}"
 SRC_DIR="${CODEBUILD_SRC_DIR:-.}"
 
 echo "Account=${CDK_DEFAULT_ACCOUNT} Region=${AWS_REGION}"
@@ -42,24 +43,32 @@ else
   echo "Skipping deploy (not a main PUSH)"
 fi
 
-COGNITO_USER_POOL_ID="$(stack_out UserPoolId)"
-COGNITO_CLIENT_ID="$(stack_out UserPoolClientId)"
-COGNITO_CLIENT_SECRET="$(stack_out UserPoolClientSecret)"
-REGION_FROM_STACK="$(stack_out Region)"
+echo "Loading Cognito config from Secrets Manager (${COGNITO_CONFIG_SECRET_NAME})"
+SECRET_JSON="$(aws secretsmanager get-secret-value \
+  --secret-id "${COGNITO_CONFIG_SECRET_NAME}" \
+  --query SecretString \
+  --output text)"
+
+COGNITO_USER_POOL_ID="$(jq -r '.userPoolId // empty' <<<"${SECRET_JSON}")"
+COGNITO_CLIENT_ID="$(jq -r '.clientId // empty' <<<"${SECRET_JSON}")"
+COGNITO_CLIENT_SECRET="$(jq -r '.clientSecret // empty' <<<"${SECRET_JSON}")"
+REGION_FROM_SECRET="$(jq -r '.region // empty' <<<"${SECRET_JSON}")"
+unset SECRET_JSON
+
 export COGNITO_USER_POOL_ID COGNITO_CLIENT_ID COGNITO_CLIENT_SECRET
 
-if [ -n "${REGION_FROM_STACK}" ] && [ "${REGION_FROM_STACK}" != "None" ]; then
-  export AWS_REGION="${REGION_FROM_STACK}"
+if [ -n "${REGION_FROM_SECRET}" ]; then
+  export AWS_REGION="${REGION_FROM_SECRET}"
 fi
 
 for var in COGNITO_USER_POOL_ID COGNITO_CLIENT_ID COGNITO_CLIENT_SECRET AWS_REGION; do
   eval "val=\${$var}"
-  if [ -z "${val}" ] || [ "${val}" = "None" ] || [ "${val}" = "null" ]; then
-    echo "Missing stack output mapped to ${var}"
+  if [ -z "${val}" ]; then
+    echo "Missing ${var} in secret ${COGNITO_CONFIG_SECRET_NAME}"
     exit 1
   fi
 done
-echo "Loaded Cognito config from ${STACK_NAME} outputs"
+echo "Loaded Cognito config from Secrets Manager (secret values not logged)"
 
 # Child-process exports do not persist across buildspec commands; dotenv reads .env.
 umask 077
