@@ -38,28 +38,28 @@ npx cdk deploy --profile cognito-dev
 
 From the repo root you can also run `npm run infra:synth` / `npm run infra:deploy` / `npm run infra:test`.
 
-### Outputs → `.env`
+### Cognito config → `.env`
 
-After deploy, copy stack outputs into the harness `.env` (never commit `.env`):
+After deploy, pull config from Secrets Manager (never commit `.env`):
 
-| Stack output | Env var |
-|---|---|
-| `UserPoolId` | `COGNITO_USER_POOL_ID` |
-| `UserPoolClientId` | `COGNITO_CLIENT_ID` |
-| `UserPoolClientSecret` | `COGNITO_CLIENT_SECRET` |
-| `Region` | `AWS_REGION` |
+```bash
+export AWS_PROFILE=cognito-dev
+export AWS_REGION=us-east-1
+npm run env:pull
+```
 
-Keep `AWS_PROFILE=cognito-dev` (or your deploy profile).
+Secret name: `cognito-test-harness/cognito` (JSON: `userPoolId`, `clientId`, `clientSecret`, `region`).  
+Stack output `CognitoConfigSecretName` points at that secret. Pool/client ids and region are also non-secret stack outputs for convenience — the **client secret is not** a CloudFormation output.
 
-`UserPoolClientSecret` is emitted as a stack output for this **private learning** repo — treat it as a secret and do not paste it into public issues/PRs.
+Keep `AWS_PROFILE=cognito-dev` (or your deploy profile) in `.env` for local Cognito Admin API calls.
 
 Integration tests create and delete their own Cognito users via `CognitoLoginManager.setupUsers` / `cleanup` — no long-lived seed user is required.
 
 ## Setup
 
 ```bash
-cp .env.example .env
-# fill in .env from CDK outputs — never commit it
+export AWS_PROFILE=cognito-dev
+npm run env:pull   # writes .env from Secrets Manager — never commit it
 
 npm install
 npm test          # full suite (needs Cognito env)
@@ -75,7 +75,7 @@ All automated checks run in **CodeBuild** (not GitHub Actions). Project: `cognit
 | **Pull request** (open/sync/reopen → `main`) | infra Jest → `cdk synth` → `test:unit` → full `npm test` (**no** deploy) |
 | **Push to `main`** | If `infra/` changed → `cdk deploy`, then the same checks |
 
-Cognito env vars are **read from CloudFormation stack outputs** at the start of each build so CI stays aligned if the pool/client is replaced. The CodeBuild service role calls Cognito (no AWS access keys in GitHub).
+Cognito env vars are **read from Secrets Manager** (`cognito-test-harness/cognito`) at the start of each build so CI stays aligned if the pool/client is replaced. The CodeBuild service role reads that secret and calls Cognito (no AWS access keys in GitHub).
 
 #### Failure email (SNS)
 
@@ -123,7 +123,10 @@ npm start   # http://localhost:3000
 
 ```text
 buildspec.yml              CodeBuild CI phases
-infra/                     CDK app (Cognito + CodeBuild)
+scripts/
+  codebuild-pre-build.sh   CI deploy-if-infra + load Cognito from SM
+  env-pull.sh              local: Secrets Manager → .env
+infra/                     CDK app (Cognito + CodeBuild + SM secret)
 src/
   secretHash.ts            HMAC helper
   cognitoAuth.ts           Cognito client + env helpers
@@ -143,18 +146,43 @@ tests/
 - Do not commit `.env`, client secrets, or tokens
 - Do not log generated passwords
 - Keep this GitHub repo **private** until you are sure no IDs/secrets leaked
-- Prefer rotating the app client secret if it was ever exposed
+- Cognito client secret lives in Secrets Manager (`cognito-test-harness/cognito`), not in stack outputs or git
 - CodeBuild uses a **least-privilege** IAM service role (pool-scoped Cognito Admin + `sts:AssumeRole` into CDK bootstrap roles — not PowerUser); GitHub PAT lives only in Secrets Manager for clone/webhooks
+
+### Rotate Cognito client secret
+
+Cognito does not rotate an app client secret in place. Replace the client (CDK construct id change), deploy, then refresh local env:
+
+```bash
+# After infra changes that replace the User Pool client:
+export AWS_PROFILE=cognito-dev
+export ALERT_EMAIL=you@example.com
+npm run infra:deploy
+npm run env:pull
+npm test
+```
+
+Also rotate the GitHub PAT in `cognito-test-harness/github-pat` if it was ever pasted into chat or logs.
+
+### Before making the repo public
+
+- [ ] Client secret only in Secrets Manager (no CFN secret output) — done in this stack
+- [ ] `npm run env:pull` / CI never echo secret values
+- [ ] `.env` gitignored; `git log -- .env` empty
+- [ ] Cognito app client rotated after any past exposure; `env:pull` refreshed
+- [ ] GitHub PAT rotated if exposed; Secrets Manager updated
+- [ ] No real secrets in README, issues, or PR screenshots
+- [ ] Optional: remove personal `ALERT_EMAIL` from docs/examples (use `you@example.com`)
 
 ## Roadmap
 
 Cognito is **test infrastructure** for auth-backed coverage. Suggested order:
 
 1. **Phase 6 – CI**  
-   **Done:** AWS CodeBuild for PR + main (`buildspec.yml` + CDK project). PR runs full checks without deploy; main deploys when `infra/` changes then re-tests. Cognito config loaded from stack outputs. **Failure email:** EventBridge → SNS on CodeBuild FAILED/FAULT/STOPPED/TIMED_OUT (confirm SNS subscription after deploy with `ALERT_EMAIL`). **CodeBuild IAM:** least-privilege (no PowerUser); Cognito scoped to the harness pool; CDK deploy via bootstrap `AssumeRole`.
+   **Done:** AWS CodeBuild for PR + main (`buildspec.yml` + CDK project). PR runs full checks without deploy; main deploys when `infra/` changes then re-tests. Cognito config loaded from Secrets Manager. **Failure email:** EventBridge → SNS on CodeBuild FAILED/FAULT/STOPPED/TIMED_OUT (confirm SNS subscription after deploy with `ALERT_EMAIL`). **CodeBuild IAM:** least-privilege (no PowerUser); Cognito scoped to the harness pool; CDK deploy via bootstrap `AssumeRole`.
 
 2. **Secrets in AWS**  
-   Move client secret (and preferably pool id / client id / region) into Secrets Manager or SSM, updated on deploy. CI role reads them each run so GitHub/static config cannot drift after a replacing deploy. Stop plaintext client secret in CloudFormation outputs. Keep `.env` gitignored for local use.
+   **Done:** Cognito config (incl. client secret) in Secrets Manager `cognito-test-harness/cognito`; no plaintext client secret in CFN outputs; CI + `npm run env:pull`; rotate via client replace + public-repo checklist above.
 
 3. **Optional – two envs (`dev` / `ci`)**  
    After CI works on one stack: `dev` for local experiments; `ci` as the long-lived pool CodeBuild hits on PRs. Not a full Dev→Staging→Prod pipeline.
