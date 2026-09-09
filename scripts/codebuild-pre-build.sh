@@ -20,6 +20,21 @@ stack_out() {
     --output text
 }
 
+# Prefer exact OutputKey, then any key containing the name (nested CDK outputs).
+stack_out_fuzzy() {
+  local key="$1"
+  local value
+  value="$(stack_out "${key}" || true)"
+  if [ -n "${value}" ] && [ "${value}" != "None" ] && [ "${value}" != "null" ]; then
+    printf '%s' "${value}"
+    return 0
+  fi
+  aws cloudformation describe-stacks \
+    --stack-name "${STACK_NAME}" \
+    --query "Stacks[0].Outputs[?contains(OutputKey, '${key}')].OutputValue | [0]" \
+    --output text
+}
+
 if [ "${CODEBUILD_WEBHOOK_EVENT:-}" = "PUSH" ] && \
    [ "${CODEBUILD_WEBHOOK_HEAD_REF:-}" = "refs/heads/main" ]; then
   BEFORE="${CODEBUILD_WEBHOOK_PREV_COMMIT:-}"
@@ -27,12 +42,13 @@ if [ "${CODEBUILD_WEBHOOK_EVENT:-}" = "PUSH" ] && \
   if [ -n "${BEFORE}" ] && [ -n "${AFTER}" ] && \
      git diff --name-only "${BEFORE}" "${AFTER}" | grep -q '^infra/'; then
     # Keep the real SNS inbox from the live stack (buildspec ALERT_EMAIL is synth-only).
-    LIVE_ALERT="$(stack_out AlertEmail || true)"
-    if [ -n "${LIVE_ALERT}" ] && [ "${LIVE_ALERT}" != "None" ] && [ "${LIVE_ALERT}" != "null" ]; then
+    LIVE_ALERT="$(stack_out_fuzzy AlertEmail || true)"
+    if [ -n "${LIVE_ALERT}" ] && [ "${LIVE_ALERT}" != "None" ] && [ "${LIVE_ALERT}" != "null" ] \
+       && [[ "${LIVE_ALERT}" != *placeholder* ]] && [[ "${LIVE_ALERT}" != *example.com ]]; then
       export ALERT_EMAIL="${LIVE_ALERT}"
       echo "Using AlertEmail from stack outputs for deploy"
     else
-      echo "WARN: no AlertEmail stack output; deploy will use buildspec ALERT_EMAIL placeholder"
+      echo "WARN: no usable AlertEmail stack output; deploy will use buildspec ALERT_EMAIL (avoid placeholder on main)"
     fi
     echo "infra/ changed on main - deploying stack"
     npm run infra:deploy
