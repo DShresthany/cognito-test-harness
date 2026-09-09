@@ -92,7 +92,7 @@ After deploy, **confirm the AWS subscription email** (Subject like "AWS Notifica
 
 #### One-time: GitHub PAT for CodeBuild
 
-Create a fine-grained or classic PAT with access to this private repo (`repo` / contents + webhooks as required). Store it in Secrets Manager **before** (or as part of) deploy:
+Create a fine-grained or classic PAT with access to this repo (`repo` / contents + webhooks as required — still needed for CodeBuild clone/webhooks on a public repo). Store it in Secrets Manager **before** (or as part of) deploy:
 
 ```bash
 aws secretsmanager create-secret \
@@ -145,7 +145,7 @@ tests/
 
 - Do not commit `.env`, client secrets, or tokens
 - Do not log generated passwords
-- Keep this GitHub repo **private** until you are sure no IDs/secrets leaked
+- Do not put real Cognito IDs, client secrets, or PATs in git, issues, or PR screenshots
 - Cognito client secret lives in Secrets Manager (`cognito-test-harness/cognito`), not in stack outputs or git
 - CodeBuild uses a **least-privilege** IAM service role (pool-scoped Cognito Admin + `sts:AssumeRole` into CDK bootstrap roles — not PowerUser); GitHub PAT lives only in Secrets Manager for clone/webhooks
 
@@ -164,15 +164,16 @@ npm test
 
 Also rotate the GitHub PAT in `cognito-test-harness/github-pat` if it was ever pasted into chat or logs.
 
-### Before making the repo public
+### Public repo hygiene
 
-- [ ] Client secret only in Secrets Manager (no CFN secret output) — done in this stack
-- [ ] `npm run env:pull` / CI never echo secret values
-- [ ] `.env` gitignored; `git log -- .env` empty
-- [ ] Cognito app client rotated after any past exposure; `env:pull` refreshed
-- [ ] GitHub PAT rotated if exposed; Secrets Manager updated
-- [ ] No real secrets in README, issues, or PR screenshots
-- [ ] Optional: remove personal `ALERT_EMAIL` from docs/examples (use `you@example.com`)
+This repository is **public**. Keep it that way only while these remain true:
+
+- [x] Client secret only in Secrets Manager (no CFN secret output)
+- [x] `npm run env:pull` / CI never echo secret values
+- [x] `.env` gitignored; no `.env` in git history
+- [x] Cognito app client rotated after any past exposure; `env:pull` refreshed
+- [x] GitHub PAT rotated if exposed; Secrets Manager updated
+- [x] Docs use placeholders (`you@example.com`, `YOUR_GITHUB_PAT`) — no real secrets in README
 
 ## Roadmap
 
