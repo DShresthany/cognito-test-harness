@@ -29,6 +29,8 @@ phases:
 
   build:
     commands:
+      # TEMP: intentional fail to smoke-test SNS history URL — revert after
+      - echo "INTENTIONAL CI FAIL for SNS alert smoke" && exit 1
       - npm run infra:test
       - npm run infra:synth
       - npm run test:unit
