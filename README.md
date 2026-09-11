@@ -7,12 +7,44 @@ TypeScript/Vitest harness for a **Cognito Traditional web app** (confidential cl
 - Confidential app client: `SECRET_HASH = Base64(HMAC-SHA256(client_secret, username + client_id))`
 - Admin auth flow: `ADMIN_USER_PASSWORD_AUTH`
 - YAML personas (no passwords in git)
-- Unique users per run (`emailPrefix+runId@gmail.com`) + random passwords + `AdminDeleteUser` cleanup
+- Unique users per run (`emailPrefix+runId@gmail.com`) + random passwords + best-effort `AdminDeleteUser` cleanup
 - Stub API: `POST /login` (secret stays on the server) and `GET /confirmed` (Cognito JWT verify + confirmation payload)
 - CDK-owned User Pool + confidential client (reproducible deploy)
 - AWS CodeBuild CI (PR gate + main deploy-if-`infra/`) with an IAM service role (no GitHub Actions AWS keys)
 
 This pool requires **Username to be an email**. Uniqueness comes from the Gmail `+runId` alias, not `user-${uuid}`.
+
+## Architecture
+
+```mermaid
+flowchart LR
+  subgraph GitHub
+    PR[PR / push to main]
+  end
+
+  subgraph AWS["AWS us-east-1"]
+    CB[CodeBuild<br/>cognito-test-harness-ci]
+    SM[Secrets Manager<br/>cognito config]
+    UP[Cognito User Pool<br/>+ confidential client]
+    EB[EventBridge]
+    SNS[SNS failure email]
+  end
+
+  subgraph Tests["Vitest harness"]
+    LM[CognitoLoginManager]
+    API[Stub API<br/>login / confirmed]
+  end
+
+  PR -->|webhook| CB
+  CB -->|GetSecretValue| SM
+  SM -.->|pool / client / secret| LM
+  LM -->|Admin auth APIs| UP
+  LM --> API
+  API -->|JWT verify| UP
+  CB -->|FAILED / FAULT / ...| EB --> SNS
+```
+
+CDK (`infra/`) owns the pool, secret, CodeBuild project, and alerting. CI and local tests read Cognito config from Secrets Manager; the client secret never appears in stack outputs or git.
 
 ## Prerequisites
 
@@ -66,7 +98,7 @@ npm test          # full suite (needs Cognito env)
 npm run test:unit # no Cognito
 ```
 
-### CI (Phase 6) — AWS CodeBuild
+### CI — AWS CodeBuild
 
 All automated checks run in **CodeBuild** (not GitHub Actions). Project: `cognito-test-harness-ci`. Spec: [`buildspec.yml`](buildspec.yml).
 
@@ -79,7 +111,7 @@ Cognito env vars are **read from Secrets Manager** (`cognito-test-harness/cognit
 
 #### Failure email (SNS)
 
-CodeBuild failures publish to SNS topic `cognito-test-harness-ci-alerts` via EventBridge. Deploy with your inbox:
+CodeBuild failures publish to SNS topic `cognito-test-harness-ci-alerts` via EventBridge. The email includes build status, build ID, and a CodeBuild console logs link. Deploy with your inbox:
 
 ```bash
 export AWS_PROFILE=cognito-dev
@@ -122,7 +154,7 @@ npm start   # http://localhost:3000
 ## Layout
 
 ```text
-buildspec.yml              CodeBuild CI phases
+buildspec.yml              CodeBuild install / pre_build / build
 scripts/
   codebuild-pre-build.sh   CI deploy-if-infra + load Cognito from SM
   env-pull.sh              local: Secrets Manager → .env
@@ -175,24 +207,10 @@ This repository is **public**. Keep it that way only while these remain true:
 - [x] GitHub PAT rotated if exposed; Secrets Manager updated
 - [x] Docs use placeholders (`you@example.com`, `YOUR_GITHUB_PAT`) — no real secrets in README
 
-## Roadmap
+## Possible extensions
 
-Cognito is **test infrastructure** for auth-backed coverage. Suggested order:
+Cognito here is **test infrastructure**, not a full multi-env product. Ideas if you extend the repo:
 
-1. **Phase 6 – CI**  
-   **Done:** AWS CodeBuild for PR + main (`buildspec.yml` + CDK project). PR runs full checks without deploy; main deploys when `infra/` changes then re-tests. Cognito config loaded from Secrets Manager. **Failure email:** EventBridge → SNS on CodeBuild FAILED/FAULT/STOPPED/TIMED_OUT (confirm SNS subscription after deploy with `ALERT_EMAIL`). **CodeBuild IAM:** least-privilege (no PowerUser); Cognito scoped to the harness pool; CDK deploy via bootstrap `AssumeRole`.
-
-2. **Secrets in AWS**  
-   **Done:** Cognito config (incl. client secret) in Secrets Manager `cognito-test-harness/cognito`; no plaintext client secret in CFN outputs; CI + `npm run env:pull`; rotate via client replace + public-repo checklist above.
-
-3. **Optional – two envs (`dev` / `ci`)**  
-   After CI works on one stack: `dev` for local experiments; `ci` as the long-lived pool CodeBuild hits on PRs. Not a full Dev→Staging→Prod pipeline.
-
-4. **Phase 7 – Thin UI (optional)**  
-   Browser demo: `/login` → `POST /login` → `/confirmed` page calling `GET /confirmed`. Secret stays on the server.
-
-5. **Phase 8 – Third-party login (optional)**  
-   Federated IdP (e.g. Google) via Cognito Hosted UI after CI. Keep password YAML tests as the PR gate.
-
-6. **Hygiene**  
-   Delete unused Phase 0 console pool if present; optional billing alert; further IAM narrowing if needed.
+- Separate `dev` / `ci` stacks (local experiments vs long-lived CI pool)
+- Thin browser UI over `POST /login` and `GET /confirmed` (secret stays on the server)
+- Federated IdP (e.g. Google) via Cognito Hosted UI, with password YAML tests remaining the PR gate

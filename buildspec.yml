@@ -1,6 +1,6 @@
 version: 0.2
 
-# Phase 6 — all CI on CodeBuild
+# All CI on CodeBuild
 # PR webhook: Jest + synth + unit + Cognito npm test (no deploy)
 # main PUSH: deploy if infra/ changed, then the same checks
 # Cognito config (incl. client secret) loaded from Secrets Manager in pre_build
