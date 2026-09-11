@@ -76,6 +76,26 @@ test("User Pool, confidential client, CodeBuild, and failure email alerts", () =
     ]),
   );
 
+  // CognitoHarnessAdmin allowlist must match CognitoLoginManager (no unused Admin APIs).
+  const cognitoAdmin = Object.values(template.findResources("AWS::IAM::Policy"))
+    .flatMap(
+      (p) =>
+        (p.Properties?.PolicyDocument?.Statement as Array<{
+          Sid?: string;
+          Action?: string | string[];
+        }>) ?? [],
+    )
+    .find((s) => s.Sid === "CognitoHarnessAdmin");
+  expect(cognitoAdmin).toBeDefined();
+  expect([cognitoAdmin!.Action].flat().sort()).toEqual(
+    [
+      "cognito-idp:AdminCreateUser",
+      "cognito-idp:AdminDeleteUser",
+      "cognito-idp:AdminInitiateAuth",
+      "cognito-idp:AdminSetUserPassword",
+    ].sort(),
+  );
+
   template.hasResourceProperties("AWS::SNS::Topic", {
     TopicName: "cognito-test-harness-ci-alerts",
   });
@@ -94,5 +114,33 @@ test("User Pool, confidential client, CodeBuild, and failure email alerts", () =
         "project-name": Match.anyValue(),
       },
     },
+    Targets: Match.arrayWith([
+      Match.objectLike({
+        InputTransformer: {
+          InputPathsMap: Match.anyValue(),
+          InputTemplate: Match.anyValue(),
+        },
+      }),
+    ]),
   });
+
+  const rule = Object.values(template.findResources("AWS::Events::Rule"))[0]!;
+  const paths = Object.values(
+    rule.Properties.Targets[0].InputTransformer.InputPathsMap as Record<
+      string,
+      string
+    >,
+  );
+  expect(paths).toEqual(
+    expect.arrayContaining([
+      "$.detail.build-id",
+      "$.detail.build-status",
+    ]),
+  );
+  const templateParts = JSON.stringify(
+    rule.Properties.Targets[0].InputTransformer.InputTemplate,
+  );
+  expect(templateParts).toMatch(/Status:/);
+  expect(templateParts).toMatch(/Build ID:/);
+  expect(templateParts).toMatch(/codesuite\/codebuild/);
 });

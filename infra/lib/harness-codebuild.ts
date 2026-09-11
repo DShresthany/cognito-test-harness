@@ -22,9 +22,9 @@ export interface HarnessCodeBuildProps {
 }
 
 /**
- * CodeBuild project for Phase 6 CI (PR gate + main deploy-if-infra).
+ * CodeBuild project for PR gate + main deploy-if-infra.
  * Requires a GitHub PAT in Secrets Manager: cognito-test-harness/github-pat
- * (repo + admin:repo_hook) so CodeBuild can clone the private repo and create webhooks.
+ * (repo + admin:repo_hook) so CodeBuild can clone the public repo and create webhooks.
  *
  * Service role is least-privilege (no PowerUser): pool-scoped Cognito Admin,
  * DescribeStacks for outputs, Cognito config secret read, and sts:AssumeRole into
@@ -105,7 +105,7 @@ export class HarnessCodeBuild extends Construct {
       }),
     );
 
-    // Vitest / CognitoLoginManager — scoped to this User Pool only.
+    // CognitoLoginManager APIs only (create/set password/auth/delete) — pool-scoped.
     role.addToPolicy(
       new iam.PolicyStatement({
         sid: "CognitoHarnessAdmin",
@@ -114,16 +114,12 @@ export class HarnessCodeBuild extends Construct {
           "cognito-idp:AdminSetUserPassword",
           "cognito-idp:AdminInitiateAuth",
           "cognito-idp:AdminDeleteUser",
-          "cognito-idp:AdminGetUser",
-          "cognito-idp:DescribeUserPool",
-          "cognito-idp:DescribeUserPoolClient",
-          "cognito-idp:ListUsers",
         ],
         resources: [props.userPool.userPoolArn],
       }),
     );
 
-    // Slice 1: CI may read Cognito config from SM (Slice 2 wires pre_build to use it).
+    // CI reads Cognito config from Secrets Manager (pre_build → .env).
     props.cognitoConfigSecret.grantRead(role);
 
     this.project = new codebuild.Project(this, "Project", {
@@ -163,6 +159,11 @@ export class HarnessCodeBuild extends Construct {
       new subscriptions.EmailSubscription(props.alertEmail),
     );
 
+    const buildId = events.EventField.fromPath("$.detail.build-id");
+    const buildStatus = events.EventField.fromPath("$.detail.build-status");
+    // Console deep link: build-id in the event is the full CodeBuild build ARN.
+    const buildConsoleUrl = `https://${region}.console.aws.amazon.com/codesuite/codebuild/projects/${this.project.projectName}/build/${buildId}/log?region=${region}`;
+
     new events.Rule(this, "BuildFailedRule", {
       description:
         "Email when cognito-test-harness-ci fails, faults, stops, or times out",
@@ -180,7 +181,9 @@ export class HarnessCodeBuild extends Construct {
             [
               "CodeBuild build did not succeed.",
               `Project: ${this.project.projectName}`,
-              "Open the CodeBuild console (us-east-1) for logs.",
+              `Status: ${buildStatus}`,
+              `Build ID: ${buildId}`,
+              `Logs: ${buildConsoleUrl}`,
             ].join("\n"),
           ),
         }),
