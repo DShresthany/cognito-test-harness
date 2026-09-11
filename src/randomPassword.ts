@@ -1,3 +1,5 @@
+import { randomInt } from "node:crypto";
+
 const specials = "!@#$%^&*()-_=+";
 const lowercase = "abcdefghijklmnopqrstuvwxyz";
 const uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -7,7 +9,7 @@ const all = specials + lowercase + uppercase + numbers;
 function pick(source: string, count: number): string {
   let chars = "";
   for (let i = 0; i < count; i++) {
-    chars += source.charAt(Math.floor(Math.random() * source.length));
+    chars += source.charAt(randomInt(source.length));
   }
   return chars;
 }
@@ -15,7 +17,7 @@ function pick(source: string, count: number): string {
 function shuffle(value: string): string {
   const array = value.split("");
   for (let i = array.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = randomInt(i + 1);
     const current = array[i];
     const swap = array[j];
     if (current === undefined || swap === undefined) continue;

@@ -1,5 +1,5 @@
 users:
   - key: smoke
-    emailPrefix: dikeshtest1234+cognito-smoke
+    emailPrefix: harness-smoke
   - key: checkout
-    emailPrefix: dikeshtest1234+cognito-checkout
+    emailPrefix: harness-checkout

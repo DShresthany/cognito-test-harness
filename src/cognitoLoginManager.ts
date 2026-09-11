@@ -8,6 +8,7 @@ import {
   CognitoIdentityProviderClient,
   MessageActionType,
   UsernameExistsException,
+  UserNotFoundException,
 } from "@aws-sdk/client-cognito-identity-provider";
 import { CognitoAuthResult } from "./cognitoAuthResult.js";
 import { createCognitoClient, required } from "./cognitoAuth.js";
@@ -145,17 +146,53 @@ export class CognitoLoginManager {
     );
   }
 
+  /**
+   * Best-effort delete of users created this run. One failure does not skip the rest;
+   * already-deleted users (UserNotFound) are ignored. Throws after all attempts if
+   * any other delete failed.
+   */
   async cleanup(): Promise<void> {
-    const usernames = new Set([
-      ...this.createdUsernames,
-      ...this.authResults.map((auth) => auth.username),
-    ]);
-    for (const username of usernames) {
-      await this.client.send(
-        new AdminDeleteUserCommand({
-          UserPoolId: this.userPoolId,
-          Username: username,
-        })
+    const usernames = [
+      ...new Set([
+        ...this.createdUsernames,
+        ...this.authResults.map((auth) => auth.username),
+      ]),
+    ];
+
+    const results = await Promise.allSettled(
+      usernames.map(async (username) => {
+        try {
+          await this.client.send(
+            new AdminDeleteUserCommand({
+              UserPoolId: this.userPoolId,
+              Username: username,
+            }),
+          );
+        } catch (error) {
+          if (error instanceof UserNotFoundException) {
+            return;
+          }
+          throw error;
+        }
+      }),
+    );
+
+    const failures = results.flatMap((result, i) => {
+      if (result.status !== "rejected") {
+        return [];
+      }
+      const username = usernames[i]!;
+      const reason =
+        result.reason instanceof Error
+          ? result.reason.message
+          : String(result.reason);
+      console.warn(`cleanup: failed to delete Cognito user ${username}: ${reason}`);
+      return [`${username}: ${reason}`];
+    });
+
+    if (failures.length > 0) {
+      throw new Error(
+        `cleanup: ${failures.length}/${usernames.length} user delete(s) failed:\n${failures.join("\n")}`,
       );
     }
   }
