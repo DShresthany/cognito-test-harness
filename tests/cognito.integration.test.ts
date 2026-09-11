@@ -7,15 +7,19 @@ import { loadTestUsers } from "../src/loadTestUsers.js";
 config();
 
 const users = loadTestUsers();
-const manager = CognitoLoginManager.fromEnv();
-const app = createApp(manager);
+
+let manager: CognitoLoginManager;
+let app: ReturnType<typeof createApp>;
 
 beforeAll(async () => {
+  // Cognito env (pool/client/secret) is read here, not at module load.
+  manager = CognitoLoginManager.fromEnv();
+  app = createApp(manager);
   await manager.setupUsers(users);
 }, 90_000);
 
 afterAll(async () => {
-  await manager.cleanup();
+  await manager?.cleanup();
 }, 90_000);
 
 describe("YAML provision + login", () => {
@@ -27,7 +31,7 @@ describe("YAML provision + login", () => {
       expect(auth.username).toBeTruthy();
       expect(auth.accessToken).toBeTruthy();
       expect(auth.idToken).toBeTruthy();
-    }
+    },
   );
 });
 
