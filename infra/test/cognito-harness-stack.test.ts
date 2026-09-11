@@ -142,5 +142,6 @@ test("User Pool, confidential client, CodeBuild, and failure email alerts", () =
   );
   expect(templateParts).toMatch(/Status:/);
   expect(templateParts).toMatch(/Build ID:/);
+  expect(templateParts).toMatch(/Project history:/);
   expect(templateParts).toMatch(/codesuite\/codebuild/);
 });

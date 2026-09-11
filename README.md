@@ -111,7 +111,7 @@ Cognito env vars are **read from Secrets Manager** (`cognito-test-harness/cognit
 
 #### Failure email (SNS)
 
-CodeBuild failures publish to SNS topic `cognito-test-harness-ci-alerts` via EventBridge. The email includes build status, build ID, and a CodeBuild console logs link. Deploy with your inbox:
+CodeBuild failures publish to SNS topic `cognito-test-harness-ci-alerts` via EventBridge. The email includes build status, build ID, and a link to the CodeBuild project history (paste the Build ID to open the exact run — EventBridge cannot URL-encode build ARNs for deep links). Deploy with your inbox:
 
 ```bash
 export AWS_PROFILE=cognito-dev

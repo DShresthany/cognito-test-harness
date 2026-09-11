@@ -161,8 +161,9 @@ export class HarnessCodeBuild extends Construct {
 
     const buildId = events.EventField.fromPath("$.detail.build-id");
     const buildStatus = events.EventField.fromPath("$.detail.build-status");
-    // Console deep link: build-id in the event is the full CodeBuild build ARN.
-    const buildConsoleUrl = `https://${region}.console.aws.amazon.com/codesuite/codebuild/projects/${this.project.projectName}/build/${buildId}/log?region=${region}`;
+    // Project history (not /build/<arn>/log): EventBridge cannot URL-encode the
+    // runtime build ARN, so a raw ARN in the path 404s in the console.
+    const projectHistoryUrl = `https://${region}.console.aws.amazon.com/codesuite/codebuild/projects/${this.project.projectName}/history?region=${region}`;
 
     new events.Rule(this, "BuildFailedRule", {
       description:
@@ -183,7 +184,8 @@ export class HarnessCodeBuild extends Construct {
               `Project: ${this.project.projectName}`,
               `Status: ${buildStatus}`,
               `Build ID: ${buildId}`,
-              `Logs: ${buildConsoleUrl}`,
+              `Project history: ${projectHistoryUrl}`,
+              "Open the failed build from history using the Build ID above.",
             ].join("\n"),
           ),
         }),
