@@ -1,5 +1,3 @@
 users:
   - key: smoke
     emailPrefix: harness-smoke
-  - key: checkout
-    emailPrefix: harness-checkout
