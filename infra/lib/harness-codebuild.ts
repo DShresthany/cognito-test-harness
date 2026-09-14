@@ -15,9 +15,13 @@ export interface HarnessCodeBuildProps {
   cognitoConfigSecret: secretsmanager.ISecret;
   /** Email for CodeBuild failure alerts (SNS). Confirm the subscription in your inbox after deploy. */
   alertEmail: string;
-  /** GitHub owner (user or org). */
+  /**
+   * GitHub owner (user or org). Defaults to CDK context `githubOwner`, then this demo’s owner.
+   */
   githubOwner?: string;
-  /** GitHub repository name. */
+  /**
+   * GitHub repository name. Defaults to CDK context `githubRepo`, then this demo’s repo.
+   */
   githubRepo?: string;
 }
 
@@ -37,8 +41,14 @@ export class HarnessCodeBuild extends Construct {
   constructor(scope: Construct, id: string, props: HarnessCodeBuildProps) {
     super(scope, id);
 
-    const owner = props.githubOwner ?? "DShresthany";
-    const repo = props.githubRepo ?? "cognito-test-harness";
+    const owner =
+      props.githubOwner?.trim() ||
+      (this.node.tryGetContext("githubOwner") as string | undefined)?.trim() ||
+      "DShresthany";
+    const repo =
+      props.githubRepo?.trim() ||
+      (this.node.tryGetContext("githubRepo") as string | undefined)?.trim() ||
+      "cognito-test-harness";
 
     // Account/region singleton — create once; see README if deploy conflicts.
     new codebuild.GitHubSourceCredentials(this, "GitHubCreds", {
@@ -210,7 +220,7 @@ export class HarnessCodeBuild extends Construct {
     new cdk.CfnOutput(this, "AlertEmail", {
       value: props.alertEmail,
       description:
-        "Confirm the SNS subscription email AWS sends after deploy",
+        "Confirm the SNS subscription email (from SSM alert-email by default)",
     });
   }
 }
