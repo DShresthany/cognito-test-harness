@@ -1,21 +1,32 @@
 {
   "name": "cognito-test-harness",
   "version": "1.0.0",
-  "description": "",
+  "description": "Cognito confidential-client test harness: YAML user lifecycle, SECRET_HASH, JWT stub API, and CDK/CodeBuild CI",
   "main": "index.js",
   "scripts": {
     "start": "tsx src/server.ts",
     "test": "vitest run",
     "test:unit": "vitest run tests/secretHash.test.ts tests/randomPassword.test.ts",
     "test:watch": "vitest",
-    "infra:synth": "npm run build --prefix infra && npm run cdk --prefix infra -- synth",
-    "infra:deploy": "npm run build --prefix infra && npm run cdk --prefix infra -- deploy --require-approval never",
+    "infra:synth": "npm run typecheck --prefix infra && npm run cdk --prefix infra -- synth",
+    "infra:deploy": "npm run typecheck --prefix infra && npm run cdk --prefix infra -- deploy --require-approval never",
     "infra:test": "npm test --prefix infra",
     "env:pull": "bash scripts/env-pull.sh"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "aws",
+    "cognito",
+    "cdk",
+    "vitest",
+    "sdet",
+    "codebuild",
+    "test-harness"
+  ],
+  "author": "Dikesh Shrestha",
   "license": "ISC",
+  "engines": {
+    "node": ">=20"
+  },
   "type": "module",
   "dependencies": {
     "@aws-sdk/client-cognito-identity-provider": "^3.1125.0",

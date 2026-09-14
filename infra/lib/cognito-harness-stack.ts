@@ -1,20 +1,50 @@
 import * as cdk from "aws-cdk-lib/core";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
+import * as ssm from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
 import { HarnessCodeBuild } from "./harness-codebuild";
 
 /** JSON secret: { userPoolId, clientId, clientSecret, region }. */
 export const COGNITO_CONFIG_SECRET_NAME = "cognito-test-harness/cognito";
 
+/** SNS failure-alert inbox (String parameter; create once outside the stack). */
+export const ALERT_EMAIL_PARAMETER_NAME = "/cognito-test-harness/alert-email";
+
 export interface CognitoHarnessStackProps extends cdk.StackProps {
-  /** Inbox for CodeBuild failure emails (SNS subscription). */
-  alertEmail: string;
+  /**
+   * Optional SNS alert inbox override.
+   * Default: SSM {@link ALERT_EMAIL_PARAMETER_NAME} via CloudFormation dynamic reference
+   * (synth does not need the value; deploy resolves it). Prefer SSM for real deploys;
+   * pass a concrete address in unit tests.
+   */
+  alertEmail?: string;
+  /** GitHub owner for CodeBuild source (or CDK context `githubOwner`). */
+  githubOwner?: string;
+  /** GitHub repo for CodeBuild source (or CDK context `githubRepo`). */
+  githubRepo?: string;
+}
+
+function resolveAlertEmail(scope: Construct, override?: string): string {
+  const trimmed = override?.trim();
+  if (trimmed) {
+    return trimmed;
+  }
+  return ssm.StringParameter.valueForStringParameter(
+    scope,
+    ALERT_EMAIL_PARAMETER_NAME,
+  );
 }
 
 export class CognitoHarnessStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props: CognitoHarnessStackProps) {
+  constructor(
+    scope: Construct,
+    id: string,
+    props: CognitoHarnessStackProps = {},
+  ) {
     super(scope, id, props);
+
+    const alertEmail = resolveAlertEmail(this, props.alertEmail);
 
     const userPool = new cognito.UserPool(this, "HarnessUserPool", {
       userPoolName: "cognito-test-harness",
@@ -70,14 +100,21 @@ export class CognitoHarnessStack extends cdk.Stack {
     new HarnessCodeBuild(this, "Ci", {
       userPool,
       cognitoConfigSecret: cognitoConfig,
-      alertEmail: props.alertEmail,
+      alertEmail,
+      githubOwner: props.githubOwner,
+      githubRepo: props.githubRepo,
     });
 
-    // Stable OutputKey "AlertEmail" for CI (nested Ci*AlertEmail* keys break exact match).
-    new cdk.CfnOutput(this, "AlertEmail", {
-      value: props.alertEmail,
+    new cdk.CfnOutput(this, "AlertEmailParameterName", {
+      value: ALERT_EMAIL_PARAMETER_NAME,
       description:
-        "SNS failure-alert inbox; CodeBuild main deploy must reuse this (not the synth placeholder)",
+        "SSM parameter for SNS failure-alert inbox (stack does not own the value)",
+    });
+
+    new cdk.CfnOutput(this, "AlertEmail", {
+      value: alertEmail,
+      description:
+        "SNS failure-alert inbox (from SSM by default, or alertEmail override)",
     });
 
     new cdk.CfnOutput(this, "UserPoolId", {

@@ -1,6 +1,9 @@
 import * as cdk from "aws-cdk-lib/core";
 import { Match, Template } from "aws-cdk-lib/assertions";
-import { CognitoHarnessStack } from "../lib/cognito-harness-stack";
+import {
+  ALERT_EMAIL_PARAMETER_NAME,
+  CognitoHarnessStack,
+} from "../lib/cognito-harness-stack";
 
 test("User Pool, confidential client, CodeBuild, and failure email alerts", () => {
   const app = new cdk.App();
@@ -49,6 +52,7 @@ test("User Pool, confidential client, CodeBuild, and failure email alerts", () =
   // Client secret must not appear as a plaintext stack output.
   expect(template.findOutputs("*").UserPoolClientSecret).toBeUndefined();
   expect(template.findOutputs("*").CognitoConfigSecretName).toBeDefined();
+  expect(template.findOutputs("*").AlertEmailParameterName).toBeDefined();
 
   // Least-privilege: no PowerUser; CDK deploy via AssumeRole; Cognito + CFN outputs scoped.
   const roles = template.findResources("AWS::IAM::Role");
@@ -144,4 +148,21 @@ test("User Pool, confidential client, CodeBuild, and failure email alerts", () =
   expect(templateParts).toMatch(/Build ID:/);
   expect(templateParts).toMatch(/Project history:/);
   expect(templateParts).toMatch(/codesuite\/codebuild/);
+});
+
+test("default alert email uses SSM parameter reference", () => {
+  const app = new cdk.App();
+  const stack = new CognitoHarnessStack(app, "TestStackSsm", {
+    env: { account: "111111111111", region: "us-east-1" },
+  });
+  const template = Template.fromStack(stack);
+
+  template.hasResourceProperties("AWS::SNS::Subscription", {
+    Protocol: "email",
+    Endpoint: Match.objectLike({
+      Ref: Match.stringLikeRegexp(
+        `SsmParameterValue.*${ALERT_EMAIL_PARAMETER_NAME.replace(/\W/g, "")}`,
+      ),
+    }),
+  });
 });
