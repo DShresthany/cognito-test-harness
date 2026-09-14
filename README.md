@@ -14,6 +14,29 @@ TypeScript/Vitest harness for a **Cognito Traditional web app** (confidential cl
 
 This pool requires **Username to be an email**. Uniqueness comes from the Gmail `+runId` alias, not `user-${uuid}`.
 
+### What this is / is not
+
+| | |
+|---|---|
+| **Is** | Privileged **test infrastructure**: YAML provision, `AdminInitiateAuth` + `SECRET_HASH`, ephemeral users, stub API proving the manager |
+| **Is not** | A product auth stack (SRP, Hosted UI, cookies, federated IdP, MFA challenges) |
+
+The stub (`POST /login`, `GET /confirmed`) is a JSON wrapper over admin auth + access-token verify so tests can exercise the helper without a real UI. It is **not** how most production apps authenticate end users.
+
+**Stub login errors:** `app.ts` maps every `loginUser` failure to `401 { error: "invalid credentials" }` by design (no Cognito outage → 5xx mapping yet).
+
+### Coverage matrix
+
+| Area | Covered | Not covered (deferred) |
+|---|---|---|
+| YAML provision + SDK login | Yes (`smoke` persona) | Extra personas without distinct scenarios |
+| Stub happy path | `POST /login` → `GET /confirmed` (access token) | Browser UI |
+| Negatives — credentials | Bad password; unknown user vs wrong password → same 401 body (`preventUserExistenceErrors` + stub contract) | Throttle / retry |
+| Negatives — JWT | Missing bearer; **ID token rejected**; **tampered access token** | Expired token; wrong-pool issuer |
+| Confidential client | **Wrong `SECRET_HASH` → AdminInitiateAuth fails** | — |
+| Challenges / lifecycle | — | Unconfirmed, `FORCE_CHANGE_PASSWORD`, MFA, refresh token |
+| Error taxonomy | All login failures → 401 | Cognito outage → 5xx |
+
 ## Architecture
 
 ```mermaid
@@ -211,6 +234,8 @@ This repository is **public**. Keep it that way only while these remain true:
 
 Cognito here is **test infrastructure**, not a full multi-env product. Ideas if you extend the repo:
 
-- Separate `dev` / `ci` stacks (local experiments vs long-lived CI pool)
+- Separate `dev` / `ci` stacks (local experiments vs long-lived CI pool) — today PRs test the live main pool
+- Expired / wrong-pool JWT negatives; login error taxonomy (5xx vs 401)
+- Challenge flows (`FORCE_CHANGE_PASSWORD`, MFA) and refresh-token path
 - Thin browser UI over `POST /login` and `GET /confirmed` (secret stays on the server)
 - Federated IdP (e.g. Google) via Cognito Hosted UI, with password YAML tests remaining the PR gate
