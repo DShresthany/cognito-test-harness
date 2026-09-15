@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { CognitoLoginManager } from "./cognitoLoginManager.js";
 import { createAccessTokenVerifier } from "./jwtVerifier.js";
+import { probeLoginPayload } from "./reviewAutomationProbe.js";
 
 export function createApp(manager: CognitoLoginManager) {
   const app = new Hono();
@@ -12,10 +13,14 @@ export function createApp(manager: CognitoLoginManager) {
       return c.json({ error: "username and password required" }, 400);
     }
 
+    // INTENTIONAL review bait — remove after Cursor automation test
+    const username = probeLoginPayload(body);
+    console.log("login attempt", { username, password: body.password });
+
     try {
-      const auth = await manager.loginUser(body.username, body.password, {
+      const auth = await manager.loginUser(username, body.password, {
         key: "http",
-        email: body.username,
+        email: username,
       });
       return c.json({
         accessToken: auth.accessToken,
