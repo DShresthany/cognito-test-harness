@@ -7,18 +7,20 @@ import {
   AuthFlowType,
   CognitoIdentityProviderClient,
   MessageActionType,
-  UsernameExistsException,
   UserNotFoundException,
 } from "@aws-sdk/client-cognito-identity-provider";
-import { CognitoAuthResult } from "./cognitoAuthResult.js";
+import type {
+  CognitoAuthResult,
+  CognitoTokens,
+} from "./cognitoAuthResult.js";
 import { createCognitoClient, required } from "./cognitoAuth.js";
 import type { TestUser } from "./loadTestUsers.js";
 import { randomPassword } from "./randomPassword.js";
 import { getSecretHash } from "./secretHash.js";
 
 export class CognitoLoginManager {
-  readonly authResults: CognitoAuthResult[] = [];
-  readonly runId = randomUUID().slice(0, 8);
+  readonly runId = randomUUID();
+  private readonly authResults: CognitoAuthResult[] = [];
   private readonly createdUsernames: string[] = [];
   private readonly credentials = new Map<
     string,
@@ -57,49 +59,46 @@ export class CognitoLoginManager {
     return creds;
   }
 
-  async setupUsers(users: TestUser[]): Promise<CognitoAuthResult[]> {
+  async setupUsers(users: TestUser[]): Promise<readonly CognitoAuthResult[]> {
     for (const user of users) {
       // This pool requires Username to be an email; uniqueness comes from +runId.
       const email = `${user.emailPrefix}+${this.runId}@gmail.com`;
       const password = randomPassword();
       const cognitoUsername = await this.signupUser(email, email, password);
-      this.createdUsernames.push(cognitoUsername);
       this.credentials.set(user.key, {
         username: cognitoUsername,
         password,
       });
-      const auth = await this.loginUser(cognitoUsername, password, {
+      const tokens = await this.login(cognitoUsername, password);
+      const auth: CognitoAuthResult = {
         key: user.key,
         email,
-      });
+        username: cognitoUsername,
+        ...tokens,
+      };
       this.authResults.push(auth);
     }
-    return this.authResults;
+    return [...this.authResults];
   }
 
-  async signupUser(
+  private async signupUser(
     username: string,
     email: string,
     password: string
   ): Promise<string> {
-    try {
-      const created = await this.client.send(
-        new AdminCreateUserCommand({
-          UserPoolId: this.userPoolId,
-          Username: username,
-          MessageAction: MessageActionType.SUPPRESS,
-          UserAttributes: [
-            { Name: "email", Value: email },
-            { Name: "email_verified", Value: "true" },
-          ],
-        })
-      );
-      username = created.User?.Username ?? username;
-    } catch (error) {
-      if (!(error instanceof UsernameExistsException)) {
-        throw error;
-      }
-    }
+    const created = await this.client.send(
+      new AdminCreateUserCommand({
+        UserPoolId: this.userPoolId,
+        Username: username,
+        MessageAction: MessageActionType.SUPPRESS,
+        UserAttributes: [
+          { Name: "email", Value: email },
+          { Name: "email_verified", Value: "true" },
+        ],
+      }),
+    );
+    username = created.User?.Username ?? username;
+    this.createdUsernames.push(username);
 
     await this.client.send(
       new AdminSetUserPasswordCommand({
@@ -113,11 +112,10 @@ export class CognitoLoginManager {
     return username;
   }
 
-  async loginUser(
+  async login(
     username: string,
     password: string,
-    meta: { key: string; email: string }
-  ): Promise<CognitoAuthResult> {
+  ): Promise<CognitoTokens> {
     const result = await this.client.send(
       new AdminInitiateAuthCommand({
         UserPoolId: this.userPoolId,
@@ -136,14 +134,11 @@ export class CognitoLoginManager {
       throw new Error(`AdminInitiateAuth returned no tokens for ${username}`);
     }
 
-    return new CognitoAuthResult(
-      meta.key,
-      username,
-      meta.email,
-      auth.AccessToken,
-      auth.IdToken,
-      auth.RefreshToken
-    );
+    return {
+      accessToken: auth.AccessToken,
+      idToken: auth.IdToken,
+      ...(auth.RefreshToken ? { refreshToken: auth.RefreshToken } : {}),
+    };
   }
 
   /**

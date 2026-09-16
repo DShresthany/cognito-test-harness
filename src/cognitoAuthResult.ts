@@ -1,10 +1,11 @@
-export class CognitoAuthResult {
-  constructor(
-    public readonly key: string,
-    public readonly username: string,
-    public readonly email: string,
-    public readonly accessToken: string,
-    public readonly idToken: string,
-    public readonly refreshToken?: string
-  ) {}
-}
+export type CognitoTokens = {
+  accessToken: string;
+  idToken: string;
+  refreshToken?: string;
+};
+
+export type CognitoAuthResult = CognitoTokens & {
+  key: string;
+  username: string;
+  email: string;
+};

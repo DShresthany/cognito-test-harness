@@ -1,14 +1,10 @@
-import {
-  AdminInitiateAuthCommand,
-  AuthFlowType,
-} from "@aws-sdk/client-cognito-identity-provider";
+import { NotAuthorizedException } from "@aws-sdk/client-cognito-identity-provider";
 import { config } from "dotenv";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../src/app.js";
-import { createCognitoClient, required } from "../src/cognitoAuth.js";
+import { attemptLoginWithInvalidSecretHash } from "../src/cognitoConfidentialClientProbe.js";
 import { CognitoLoginManager } from "../src/cognitoLoginManager.js";
 import { loadTestUsers } from "../src/loadTestUsers.js";
-import { getSecretHash } from "../src/secretHash.js";
 
 config();
 
@@ -145,29 +141,10 @@ describe("stub API", () => {
 describe("confidential client SECRET_HASH", () => {
   it("rejects AdminInitiateAuth with a wrong SECRET_HASH", async () => {
     const creds = manager.getCredentials("smoke");
-    const client = createCognitoClient();
-    const userPoolId = required("COGNITO_USER_POOL_ID");
-    const clientId = required("COGNITO_CLIENT_ID");
-    const clientSecret = required("COGNITO_CLIENT_SECRET");
 
-    await expect(
-      client.send(
-        new AdminInitiateAuthCommand({
-          UserPoolId: userPoolId,
-          ClientId: clientId,
-          AuthFlow: AuthFlowType.ADMIN_USER_PASSWORD_AUTH,
-          AuthParameters: {
-            USERNAME: creds.username,
-            PASSWORD: creds.password,
-            SECRET_HASH: getSecretHash(
-              creds.username,
-              clientId,
-              `${clientSecret}-wrong`,
-            ),
-          },
-        }),
-      ),
-    ).rejects.toThrow();
+    await expect(attemptLoginWithInvalidSecretHash(creds)).rejects.toBeInstanceOf(
+      NotAuthorizedException,
+    );
   });
 });
 
