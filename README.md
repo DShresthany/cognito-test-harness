@@ -41,8 +41,8 @@ The stub (`POST /login`, `GET /confirmed`) is a JSON wrapper over admin auth + a
 | What fails | Interpretation |
 |---|---|
 | `infra:test` / `infra:synth` | CDK template, IAM, or stack wiring regression |
-| `test:unit` | Helper contract broken (`secretHash` known vector / password rules) |
-| `npm test` | Live Cognito or stub API contract regression |
+| `test:unit` | Helper or manager lifecycle contract broken (no AWS involved) |
+| `test:integration` | Live Cognito or stub API contract regression |
 | Main `infra:deploy` step | Infra change did not apply (CloudFormation / CDK) |
 
 PR green does **not** prove a new Cognito pool policy is safe — PRs test the **currently deployed** pool. For infra changes, deploy locally first so PR CI sees the new policy; otherwise policy is applied on **main** deploy and re-tested there. See [CI design](#ci-design-one-pool-deploy-on-main-only).
@@ -93,8 +93,9 @@ export AWS_REGION=us-east-1
 npm run env:pull   # writes .env from Secrets Manager — never commit it
 
 npm install
-npm run test:unit  # no Cognito
-npm test           # full suite (needs Cognito env)
+npm run test:unit         # fast, no AWS
+npm run test:integration  # live Cognito + stub
+npm test                  # complete suite
 ```
 
 Integration tests create and delete their own Cognito users via `CognitoLoginManager.setupUsers` / `cleanup` — no long-lived seed user is required. Optional local server (`npm start`) is not required for tests; Vitest uses in-process `app.request()`.
@@ -111,7 +112,7 @@ All automated checks run in **CodeBuild** (not GitHub Actions). Project: `cognit
 
 | Trigger | What runs |
 |---|---|
-| **Pull request** (open/sync/reopen → `main`) | infra Jest → `cdk synth` → `test:unit` → full `npm test` (**no** deploy) |
+| **Pull request** (open/sync/reopen → `main`) | infra Jest → `cdk synth` → `test:unit` → `test:integration` (**no** deploy) |
 | **Push to `main`** | If `infra/` changed → `cdk deploy`, then the same checks |
 
 Cognito env vars are **read from Secrets Manager** (`cognito-test-harness/cognito`) at the start of each build. The CodeBuild service role reads that secret and calls Cognito (no AWS access keys in GitHub).
@@ -123,7 +124,7 @@ This is a **solo demo** with a single long-lived Cognito stack (no separate `dev
 | Behavior | Why |
 |---|---|
 | **PRs do not deploy** | `scripts/codebuild-pre-build.sh` deploys only on `PUSH` to `main` when `infra/` changed |
-| **PR `npm test` hits the currently deployed pool** | Config comes from Secrets Manager for that live stack — not from the PR’s undeployed template |
+| **PR `test:integration` hits the currently deployed pool** | Config comes from Secrets Manager for that live stack — not from the PR’s undeployed template |
 | **Infra policy is applied on main** | After merge, main deploy updates the pool; the same Cognito checks then re-run against the new policy |
 
 Tradeoff: a PR that only changes Cognito pool settings can go **green against today’s pool**, then fail (or change behavior) **after** main deploy. That is accepted here to keep CI simple and avoid shared-stack deploys from every PR.

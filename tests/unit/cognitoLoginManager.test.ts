@@ -7,8 +7,8 @@ import {
   UsernameExistsException,
 } from "@aws-sdk/client-cognito-identity-provider";
 import { describe, expect, it, vi } from "vitest";
-import type { CognitoAuthResult } from "../src/cognitoAuthResult.js";
-import { CognitoLoginManager } from "../src/cognitoLoginManager.js";
+import type { CognitoAuthResult } from "../../src/cognitoAuthResult.js";
+import { CognitoLoginManager } from "../../src/cognitoLoginManager.js";
 
 describe("CognitoLoginManager user ownership", () => {
   it("returns tokens without requiring persona metadata", async () => {

@@ -1,10 +1,10 @@
 import { NotAuthorizedException } from "@aws-sdk/client-cognito-identity-provider";
 import { config } from "dotenv";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createApp } from "../src/app.js";
-import { attemptLoginWithInvalidSecretHash } from "../src/cognitoConfidentialClientProbe.js";
-import { CognitoLoginManager } from "../src/cognitoLoginManager.js";
-import { loadTestUsers } from "../src/loadTestUsers.js";
+import { createApp } from "../../src/app.js";
+import { attemptLoginWithInvalidSecretHash } from "../../src/cognitoConfidentialClientProbe.js";
+import { CognitoLoginManager } from "../../src/cognitoLoginManager.js";
+import { loadTestUsers } from "../../src/loadTestUsers.js";
 
 config();
 
