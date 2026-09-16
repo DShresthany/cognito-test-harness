@@ -13,7 +13,7 @@ The server holds the app client secret, computes `SECRET_HASH`, and authenticate
 
 The stub (`POST /login`, `GET /confirmed`) is a JSON wrapper over admin auth + access-token verify so tests can exercise the helper without a real UI. It is **not** how most production apps authenticate end users.
 
-**Stub login errors:** `app.ts` maps every `loginUser` failure to `401 { error: "invalid credentials" }` by design (no Cognito outage → 5xx mapping yet).
+**Stub login errors:** `app.ts` maps every `login` failure to `401 { error: "invalid credentials" }` by design (no Cognito outage → 5xx mapping yet).
 
 ## Risks under test
 
@@ -98,6 +98,12 @@ npm test           # full suite (needs Cognito env)
 ```
 
 Integration tests create and delete their own Cognito users via `CognitoLoginManager.setupUsers` / `cleanup` — no long-lived seed user is required. Optional local server (`npm start`) is not required for tests; Vitest uses in-process `app.request()`.
+
+### Growth posture
+
+The harness is shaped for additional personas, focused Cognito risk scenarios, and concurrent runs. Each manager uses a full UUID in its email aliases and tracks user ownership before password assignment so partial setup failures remain cleanable. Confidential-client negatives keep their Cognito command wiring in a focused probe module instead of rebuilding it in each test.
+
+Personas should be added only with distinct scenario assertions. A generic identity-provider abstraction is intentionally deferred until a second provider or offline adapter creates a real seam.
 
 ## CI overview
 

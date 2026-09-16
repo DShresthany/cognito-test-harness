@@ -13,10 +13,7 @@ export function createApp(manager: CognitoLoginManager) {
     }
 
     try {
-      const auth = await manager.loginUser(body.username, body.password, {
-        key: "http",
-        email: body.username,
-      });
+      const auth = await manager.login(body.username, body.password);
       return c.json({
         accessToken: auth.accessToken,
         idToken: auth.idToken,
