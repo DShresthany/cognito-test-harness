@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { randomPassword } from "../src/randomPassword.js";
+import { randomPassword } from "../../src/randomPassword.js";
 
 describe("randomPassword", () => {
   it("always meets Cognito complexity rules across many samples", () => {

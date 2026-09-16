@@ -6,7 +6,8 @@
   "scripts": {
     "start": "tsx src/server.ts",
     "test": "vitest run",
-    "test:unit": "vitest run tests/secretHash.test.ts tests/randomPassword.test.ts tests/cognitoLoginManager.test.ts",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
     "test:watch": "vitest",
     "infra:synth": "npm run typecheck --prefix infra && npm run cdk --prefix infra -- synth",
     "infra:deploy": "npm run typecheck --prefix infra && npm run cdk --prefix infra -- deploy --require-approval never",

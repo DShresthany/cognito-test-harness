@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getSecretHash } from "../src/secretHash.js";
+import { getSecretHash } from "../../src/secretHash.js";
 
 describe("getSecretHash", () => {
   // Frozen Cognito-style vector: Base64(HMAC-SHA256(secret, username + clientId)).
