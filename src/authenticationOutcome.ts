@@ -5,7 +5,8 @@ export type AuthenticationOperation =
   | "verify-software-token"
   | "associate-software-token"
   | "refresh-token"
-  | "verify-access-token";
+  | "verify-access-token"
+  | "verify-id-token";
 
 export type CognitoTokenSet = {
   accessToken: string;
@@ -635,6 +636,7 @@ function notAuthorizedReason(
     case "associate-software-token":
     case "verify-software-token":
     case "verify-access-token":
+    case "verify-id-token":
       return "invalid-access-token";
     case "admin-initiate-auth":
     case "initiate-auth":
