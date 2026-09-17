@@ -35,9 +35,9 @@ From the repo root: `npm run infra:synth` / `npm run infra:deploy` / `npm run in
 
 `cdk synth` does **not** need `ALERT_EMAIL` — the stack references SSM `/cognito-test-harness/alert-email` (CloudFormation resolves it at deploy). Optional override for emergencies only: `ALERT_EMAIL=you@example.com` or `-c alertEmail=…` (placeholders like `*@example.com` / `*placeholder*` are rejected).
 
-## Cognito config → `.env`
+## Cognito config → `.cognito/config.json`
 
-After deploy, pull config from Secrets Manager (never commit `.env`):
+After deploy, pull config from Secrets Manager (never commit `.env` or `.cognito/`):
 
 ```bash
 export AWS_PROFILE=cognito-dev
@@ -46,7 +46,9 @@ npm run env:pull
 ```
 
 Secret name: `cognito-test-harness/cognito` (JSON: legacy `userPoolId`, `clientId`, `clientSecret`, `region`, plus schema version 2 `profiles` for `admin-confidential` and `user-pool-public`).  
-Stack output `CognitoConfigSecretName` points at that secret. Pool/client ids and region are also non-secret stack outputs — the **client secret is not** a CloudFormation output. `env:pull` still reads the legacy top-level fields.
+Stack output `CognitoConfigSecretName` points at that secret. Pool/client ids and region are also non-secret stack outputs — the **client secret is not** a CloudFormation output.
+
+`env:pull` materializes owner-only `.cognito/config.json` (full secret JSON) and a bootstrap `.env` with `AWS_PROFILE`, `AWS_REGION`, and `COGNITO_CONFIG_PATH` only — no pool/client/secret env vars. Runtime and integration tests load profiles from that config path and run a live DescribeUserPoolClient preflight.
 
 Keep `AWS_PROFILE=cognito-dev` (or your deploy profile) in `.env` for local Cognito Admin API calls.
 
