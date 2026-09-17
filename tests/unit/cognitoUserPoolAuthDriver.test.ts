@@ -110,4 +110,49 @@ describe("CognitoUserPoolAuthDriver", () => {
     });
     expect(send).toHaveBeenCalledTimes(2);
   });
+
+  it("refreshes with REFRESH_TOKEN_AUTH and returns access and ID without a replacement refresh token", async () => {
+    const send = vi.fn().mockResolvedValue({
+      AuthenticationResult: {
+        AccessToken: "new-access",
+        IdToken: "new-id",
+      },
+    });
+    const driver = new CognitoUserPoolAuthDriver({ send }, profile);
+
+    await expect(driver.refresh("refresh-token")).resolves.toEqual({
+      kind: "authenticated",
+      tokens: {
+        accessToken: "new-access",
+        idToken: "new-id",
+      },
+    });
+
+    const command = send.mock.calls[0]?.[0] as {
+      input?: {
+        AuthFlow?: string;
+        ClientId?: string;
+        AuthParameters?: Record<string, string>;
+      };
+    };
+    expect(command.input?.AuthFlow).toBe("REFRESH_TOKEN_AUTH");
+    expect(command.input?.ClientId).toBe("public-client-id");
+    expect(command.input?.AuthParameters).toEqual({
+      REFRESH_TOKEN: "refresh-token",
+    });
+  });
+
+  it("rejects a malformed refresh token as invalid-refresh-token", async () => {
+    const send = vi.fn().mockRejectedValue(
+      Object.assign(new Error("Invalid Refresh Token"), {
+        name: "NotAuthorizedException",
+      }),
+    );
+    const driver = new CognitoUserPoolAuthDriver({ send }, profile);
+
+    await expect(driver.refresh("not-a-refresh-token")).resolves.toMatchObject({
+      kind: "rejected",
+      rejection: { reason: "invalid-refresh-token" },
+    });
+  });
 });

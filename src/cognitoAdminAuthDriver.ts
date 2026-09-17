@@ -73,4 +73,50 @@ export class CognitoAdminAuthDriver {
       }
     }, this.retry);
   }
+
+  async refresh(
+    username: string,
+    refreshToken: string,
+  ): Promise<AuthenticationOutcome> {
+    return retryAuthenticationOperation(async () => {
+      try {
+        const response = await this.sender.send(
+          new AdminInitiateAuthCommand({
+            UserPoolId: this.profile.userPoolId,
+            ClientId: this.profile.clientId,
+            AuthFlow: AuthFlowType.REFRESH_TOKEN_AUTH,
+            AuthParameters: {
+              USERNAME: username,
+              REFRESH_TOKEN: refreshToken,
+              SECRET_HASH: getSecretHash(
+                username,
+                this.profile.clientId,
+                this.profile.clientSecret,
+              ),
+            },
+          }),
+        );
+        return mapAuthenticationOutcome({
+          operation: "refresh-token",
+          response,
+          continuation: {
+            username,
+            profileId: this.profile.id,
+          },
+        });
+      } catch (error) {
+        if (error instanceof OperationalAuthenticationFailure) {
+          throw error;
+        }
+        return mapAuthenticationOutcome({
+          operation: "refresh-token",
+          error,
+          continuation: {
+            username,
+            profileId: this.profile.id,
+          },
+        });
+      }
+    }, this.retry);
+  }
 }

@@ -158,4 +158,56 @@ describe("CognitoAdminAuthDriver", () => {
     });
     expect(send).toHaveBeenCalledTimes(3);
   });
+
+  it("refreshes with REFRESH_TOKEN_AUTH and returns access and ID without a replacement refresh token", async () => {
+    const send = vi.fn().mockResolvedValue({
+      AuthenticationResult: {
+        AccessToken: "new-access",
+        IdToken: "new-id",
+      },
+    });
+    const driver = new CognitoAdminAuthDriver({ send }, profile);
+
+    await expect(
+      driver.refresh("user@example.com", "refresh-token"),
+    ).resolves.toEqual({
+      kind: "authenticated",
+      tokens: {
+        accessToken: "new-access",
+        idToken: "new-id",
+      },
+    });
+
+    const command = send.mock.calls[0]?.[0] as {
+      input?: {
+        AuthFlow?: string;
+        UserPoolId?: string;
+        ClientId?: string;
+        AuthParameters?: Record<string, string>;
+      };
+    };
+    expect(command.input?.AuthFlow).toBe("REFRESH_TOKEN_AUTH");
+    expect(command.input?.UserPoolId).toBe("pool-id");
+    expect(command.input?.ClientId).toBe("client-id");
+    expect(command.input?.AuthParameters?.REFRESH_TOKEN).toBe("refresh-token");
+    expect(command.input?.AuthParameters?.USERNAME).toBe("user@example.com");
+    expect(command.input?.AuthParameters?.SECRET_HASH).toBeDefined();
+    expect(command.input?.AuthParameters?.PASSWORD).toBeUndefined();
+  });
+
+  it("rejects a malformed refresh token as invalid-refresh-token", async () => {
+    const send = vi.fn().mockRejectedValue(
+      Object.assign(new Error("Invalid Refresh Token"), {
+        name: "NotAuthorizedException",
+      }),
+    );
+    const driver = new CognitoAdminAuthDriver({ send }, profile);
+
+    await expect(
+      driver.refresh("user@example.com", "not-a-refresh-token"),
+    ).resolves.toMatchObject({
+      kind: "rejected",
+      rejection: { reason: "invalid-refresh-token" },
+    });
+  });
 });

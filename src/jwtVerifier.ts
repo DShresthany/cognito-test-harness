@@ -6,8 +6,19 @@ import {
 } from "aws-jwt-verify/error";
 import { OperationalAuthenticationFailure } from "./authenticationOutcome.js";
 
-export type AccessTokenClaims = { sub: string; username: string };
-export type IdTokenClaims = { sub: string; email?: string };
+export type AccessTokenClaims = {
+  sub: string;
+  username: string;
+  jti?: string;
+  iat?: number;
+};
+export type IdTokenClaims = {
+  sub: string;
+  email?: string;
+  jti?: string;
+  iat?: number;
+};
+
 
 export type TokenVerifierPort<TClaims> = {
   verify(token: string): Promise<TClaims>;
