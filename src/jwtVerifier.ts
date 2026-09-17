@@ -5,13 +5,15 @@ import {
   WaitPeriodNotYetEndedJwkError,
 } from "aws-jwt-verify/error";
 import { OperationalAuthenticationFailure } from "./authenticationOutcome.js";
-import { required } from "./cognitoAuth.js";
 
-export function createAccessTokenVerifier() {
+export function createAccessTokenVerifier(input: {
+  userPoolId: string;
+  clientId: string;
+}) {
   return CognitoJwtVerifier.create({
-    userPoolId: required("COGNITO_USER_POOL_ID"),
+    userPoolId: input.userPoolId,
     tokenUse: "access",
-    clientId: required("COGNITO_CLIENT_ID"),
+    clientId: input.clientId,
   });
 }
 
@@ -48,10 +50,13 @@ export function wrapAccessTokenVerifier(verifier: {
   };
 }
 
-export function createAccessTokenVerifierPort(): {
+export function createAccessTokenVerifierPort(input: {
+  userPoolId: string;
+  clientId: string;
+}): {
   verify(accessToken: string): Promise<{ sub: string; username: string }>;
 } {
-  return wrapAccessTokenVerifier(createAccessTokenVerifier());
+  return wrapAccessTokenVerifier(createAccessTokenVerifier(input));
 }
 
 function isRetryableJwksFailure(error: unknown): boolean {

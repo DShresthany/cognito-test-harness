@@ -5,9 +5,14 @@ import {
   CognitoAdminAuthDriver,
   type ConfidentialAdminAuthProfile,
 } from "../../src/cognitoAdminAuthDriver.js";
-import { createCognitoClient, required } from "../../src/cognitoAuth.js";
+import { createCognitoClient } from "../../src/cognitoAuth.js";
 import { attemptLoginWithInvalidSecretHash } from "../../src/cognitoConfidentialClientProbe.js";
+import {
+  createAwsCapabilityDescriber,
+  resolveCognitoConfigPath,
+} from "../../src/cognitoConfigPaths.js";
 import { CognitoLoginManager } from "../../src/cognitoLoginManager.js";
+import { createCognitoTestRuntime } from "../../src/cognitoTestRuntime.js";
 import { createAccessTokenVerifierPort } from "../../src/jwtVerifier.js";
 import { loadTestUsers } from "../../src/loadTestUsers.js";
 
@@ -21,13 +26,17 @@ let client: ReturnType<typeof createCognitoClient>;
 let profile: ConfidentialAdminAuthProfile;
 
 beforeAll(async () => {
-  // Cognito env (pool/client/secret) is read here, not at module load.
   client = createCognitoClient();
+  const runtime = await createCognitoTestRuntime({
+    configPath: resolveCognitoConfigPath(),
+    ...createAwsCapabilityDescriber(client),
+  });
+  const confidential = runtime.requireConfidentialProfile("admin-confidential");
   profile = {
-    id: "admin-confidential",
-    userPoolId: required("COGNITO_USER_POOL_ID"),
-    clientId: required("COGNITO_CLIENT_ID"),
-    clientSecret: required("COGNITO_CLIENT_SECRET"),
+    id: confidential.id,
+    userPoolId: confidential.userPoolId,
+    clientId: confidential.clientId,
+    clientSecret: confidential.clientSecret,
   };
   manager = new CognitoLoginManager(
     client,
@@ -41,7 +50,10 @@ beforeAll(async () => {
       authenticate: (username, password) =>
         driver.authenticatePassword(username, password),
     },
-    verifyAccessToken: createAccessTokenVerifierPort(),
+    verifyAccessToken: createAccessTokenVerifierPort({
+      userPoolId: profile.userPoolId,
+      clientId: profile.clientId,
+    }),
     reportDiagnostic: { report() {} },
   });
   await manager.setupUsers(users);

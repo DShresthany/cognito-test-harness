@@ -77,7 +77,7 @@ flowchart LR
   CB -->|FAILED / FAULT / ...| EB --> SNS
 ```
 
-CDK (`infra/`) owns the pool, secret, CodeBuild project, and alerting. CI and local tests read Cognito config from Secrets Manager; the client secret never appears in stack outputs or git. Pool and config secret use `RemovalPolicy.DESTROY` for this throwaway demo — **do not copy that into a shared or production account** without `RETAIN`.
+CDK (`infra/`) owns the pool, secret, CodeBuild project, and alerting. CI and local tests materialize Cognito config from Secrets Manager into owner-only `.cognito/config.json`; the client secret never appears in stack outputs or git. Pool and config secret use `RemovalPolicy.DESTROY` for this throwaway demo — **do not copy that into a shared or production account** without `RETAIN`.
 
 ## Prerequisites
 
@@ -90,7 +90,7 @@ CDK (`infra/`) owns the pool, secret, CodeBuild project, and alerting. CI and lo
 ```bash
 export AWS_PROFILE=cognito-dev
 export AWS_REGION=us-east-1
-npm run env:pull   # writes .env from Secrets Manager — never commit it
+npm run env:pull   # writes .cognito/config.json + bootstrap .env — never commit them
 
 npm install
 npm run test:unit         # fast, no AWS
@@ -115,7 +115,7 @@ All automated checks run in **CodeBuild** (not GitHub Actions). Project: `cognit
 | **Pull request** (open/sync/reopen → `main`) | infra Jest → `cdk synth` → `test:unit` → `test:integration` (**no** deploy) |
 | **Push to `main`** | If `infra/` changed → `cdk deploy`, then the same checks |
 
-Cognito env vars are **read from Secrets Manager** (`cognito-test-harness/cognito`) at the start of each build. The CodeBuild service role reads that secret and calls Cognito (no AWS access keys in GitHub).
+Cognito config is **materialized from Secrets Manager** (`cognito-test-harness/cognito`) into `.cognito/config.json` at the start of each build (`COGNITO_CONFIG_PATH`). The CodeBuild service role reads that secret and calls Cognito (no AWS access keys in GitHub).
 
 ### CI design: one pool, deploy on main only
 
@@ -155,7 +155,7 @@ tests/                     unit + Cognito integration
 
 ## Security
 
-- Do not commit `.env`, client secrets, or tokens; do not log generated passwords
+- Do not commit `.env`, `.cognito/`, client secrets, or tokens; do not log generated passwords
 - Cognito client secret and GitHub PAT live only in Secrets Manager — never stack outputs or git
 - CodeBuild uses a least-privilege IAM role (pool-scoped Cognito Admin + CDK deploy assume-role); deploy-on-main is gated by branch protection above
 - Public repo: keep secrets out of docs/issues/screenshots; rotate client secret / PAT after any exposure (see [`infra/README.md`](infra/README.md#rotate-cognito-client-secret))
