@@ -135,8 +135,8 @@ describe("mapAuthenticationOutcome", () => {
     });
   });
 
-  it("maps NEW_PASSWORD_REQUIRED including required attributes and opaque continuation", () => {
-    const session = "challenge-session-np";
+  it("NP-5: maps NEW_PASSWORD_REQUIRED requiredAttributes without live pool mutation", () => {
+    const session = "challenge-session-np5";
     const outcome = mapAuthenticationOutcome({
       operation: "initiate-auth",
       continuation,
@@ -297,6 +297,7 @@ describe("mapAuthenticationOutcome", () => {
     const rows: Array<{
       name: string;
       operation: AuthenticationOperation;
+      challengeName?: string;
       error: unknown;
       expected:
         | {
@@ -357,6 +358,17 @@ describe("mapAuthenticationOutcome", () => {
         expected: {
           kind: "rejected",
           reason: "invalid-code",
+          providerCode: "CodeMismatchException",
+        },
+      },
+      {
+        name: "invalid NEW_PASSWORD_REQUIRED session as CodeMismatch",
+        operation: "respond-to-auth-challenge" as const,
+        challengeName: "NEW_PASSWORD_REQUIRED",
+        error: cognitoException(CodeMismatchException, "Invalid session."),
+        expected: {
+          kind: "rejected",
+          reason: "invalid-challenge-session",
           providerCode: "CodeMismatchException",
         },
       },
@@ -520,6 +532,7 @@ describe("mapAuthenticationOutcome", () => {
         mapAuthenticationOutcome({
           operation: row.operation,
           error: row.error,
+          ...(row.challengeName ? { challengeName: row.challengeName } : {}),
         });
 
       if (row.expected.kind === "rejected") {
