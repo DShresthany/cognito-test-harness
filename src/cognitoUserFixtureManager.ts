@@ -137,24 +137,10 @@ export class CognitoUserFixtureManager {
       }),
     );
 
-    const failures = results.flatMap((result, i) => {
-      if (result.status !== "rejected") {
-        return [];
-      }
-      const username = usernames[i]!;
-      const reason =
-        result.reason instanceof Error
-          ? result.reason.message
-          : String(result.reason);
-      console.warn(
-        `cleanup: failed to delete Cognito user ${username}: ${reason}`,
-      );
-      return [`${username}: ${reason}`];
-    });
-
+    const failures = results.filter((result) => result.status === "rejected");
     if (failures.length > 0) {
       throw new Error(
-        `cleanup: ${failures.length}/${usernames.length} user delete(s) failed:\n${failures.join("\n")}`,
+        `cleanup: ${failures.length}/${usernames.length} user delete(s) failed`,
       );
     }
   }

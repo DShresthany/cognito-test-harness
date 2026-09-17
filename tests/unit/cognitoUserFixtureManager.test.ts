@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   CognitoUserFixtureManager,
   type TestPersonaFixtureCommands,
@@ -166,9 +166,15 @@ describe("CognitoUserFixtureManager", () => {
       { kind: "permanent-password" },
     );
 
-    await expect(fixtures.cleanup()).rejects.toThrow(
-      /cleanup: 1\/2 user delete\(s\) failed/,
-    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = await fixtures.cleanup().catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe("cleanup: 1/2 user delete(s) failed");
+    expect((error as Error).message).not.toContain("harness-smoke");
+    expect((error as Error).message).not.toContain("@gmail.com");
+    expect((error as Error).message).not.toContain("delete denied");
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
     expect(deleted).toHaveLength(2);
     expect(deleted).toEqual(
       expect.arrayContaining([

@@ -107,13 +107,47 @@ describe("CognitoAdminAuthDriver", () => {
     });
   });
 
+  it("retries throttled admin initiate-auth until authentication succeeds", async () => {
+    const send = vi
+      .fn()
+      .mockRejectedValueOnce(
+        Object.assign(new Error("throttled"), {
+          name: "TooManyRequestsException",
+        }),
+      )
+      .mockResolvedValueOnce({
+        AuthenticationResult: {
+          AccessToken: "access-token",
+          IdToken: "id-token",
+          RefreshToken: "refresh-token",
+        },
+      });
+    const driver = new CognitoAdminAuthDriver({ send }, profile, {
+      sleep: async () => undefined,
+    });
+
+    await expect(
+      driver.authenticatePassword("user@example.com", "Password1!"),
+    ).resolves.toEqual({
+      kind: "authenticated",
+      tokens: {
+        accessToken: "access-token",
+        idToken: "id-token",
+        refreshToken: "refresh-token",
+      },
+    });
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
   it("throws when admin initiate-auth is throttled", async () => {
     const send = vi.fn().mockRejectedValue(
       Object.assign(new Error("throttled"), {
         name: "TooManyRequestsException",
       }),
     );
-    const driver = new CognitoAdminAuthDriver({ send }, profile);
+    const driver = new CognitoAdminAuthDriver({ send }, profile, {
+      sleep: async () => undefined,
+    });
 
     await expect(
       driver.authenticatePassword("user@example.com", "Password1!"),
@@ -122,5 +156,6 @@ describe("CognitoAdminAuthDriver", () => {
       category: "throttled",
       retryable: true,
     });
+    expect(send).toHaveBeenCalledTimes(3);
   });
 });
