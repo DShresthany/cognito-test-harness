@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { CognitoAdminAuthDriver } from "../../src/cognitoAdminAuthDriver.js";
+import { getSecretHash } from "../../src/secretHash.js";
 
 const profile = {
   id: "admin-confidential" as const,
@@ -157,5 +158,61 @@ describe("CognitoAdminAuthDriver", () => {
       retryable: true,
     });
     expect(send).toHaveBeenCalledTimes(3);
+  });
+
+  it("refreshes with REFRESH_TOKEN_AUTH hashing sub and omitting USERNAME", async () => {
+    const send = vi.fn().mockResolvedValue({
+      AuthenticationResult: {
+        AccessToken: "new-access",
+        IdToken: "new-id",
+      },
+    });
+    const driver = new CognitoAdminAuthDriver({ send }, profile);
+    const subject = "11111111-2222-3333-4444-555555555555";
+
+    await expect(driver.refresh(subject, "refresh-token")).resolves.toEqual({
+      kind: "authenticated",
+      tokens: {
+        accessToken: "new-access",
+        idToken: "new-id",
+      },
+    });
+
+    const command = send.mock.calls[0]?.[0] as {
+      input?: {
+        AuthFlow?: string;
+        UserPoolId?: string;
+        ClientId?: string;
+        AuthParameters?: Record<string, string>;
+      };
+    };
+    expect(command.input?.AuthFlow).toBe("REFRESH_TOKEN_AUTH");
+    expect(command.input?.UserPoolId).toBe("pool-id");
+    expect(command.input?.ClientId).toBe("client-id");
+    expect(command.input?.AuthParameters).toEqual({
+      REFRESH_TOKEN: "refresh-token",
+      SECRET_HASH: getSecretHash(
+        subject,
+        profile.clientId,
+        profile.clientSecret,
+      ),
+    });
+    expect(command.input?.AuthParameters?.USERNAME).toBeUndefined();
+  });
+
+  it("rejects a malformed refresh token as invalid-refresh-token", async () => {
+    const send = vi.fn().mockRejectedValue(
+      Object.assign(new Error("Invalid Refresh Token"), {
+        name: "NotAuthorizedException",
+      }),
+    );
+    const driver = new CognitoAdminAuthDriver({ send }, profile);
+
+    await expect(
+      driver.refresh("subject-id", "not-a-refresh-token"),
+    ).resolves.toMatchObject({
+      kind: "rejected",
+      rejection: { reason: "invalid-refresh-token" },
+    });
   });
 });

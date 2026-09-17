@@ -17,6 +17,12 @@ type Credentials = {
   password: string;
 };
 
+type RefreshCredentials = {
+  /** Access/ID token `sub` — required for confidential SECRET_HASH on refresh. */
+  subject: string;
+  refreshToken: string;
+};
+
 export function attemptLoginWithInvalidSecretHash(
   sender: CognitoCommandSender,
   profile: ConfidentialAdminAuthProfile,
@@ -61,6 +67,53 @@ export async function attemptLoginWithMissingSecretHash(
       error,
       continuation: {
         username: credentials.username,
+        profileId: profile.id,
+      },
+    });
+  }
+}
+
+export function attemptRefreshWithInvalidSecretHash(
+  sender: CognitoCommandSender,
+  profile: ConfidentialAdminAuthProfile,
+  credentials: RefreshCredentials,
+) {
+  const driver = new CognitoAdminAuthDriver(sender, {
+    ...profile,
+    clientSecret: `${profile.clientSecret}-wrong`,
+  });
+  return driver.refresh(credentials.subject, credentials.refreshToken);
+}
+
+/** Missing SECRET_HASH on confidential refresh — domain invalid-refresh-token. */
+export async function attemptRefreshWithMissingSecretHash(
+  sender: CognitoCommandSender,
+  profile: ConfidentialAdminAuthProfile,
+  credentials: RefreshCredentials,
+): Promise<AuthenticationOutcome> {
+  try {
+    const response = await sender.send(
+      new AdminInitiateAuthCommand({
+        UserPoolId: profile.userPoolId,
+        ClientId: profile.clientId,
+        AuthFlow: AuthFlowType.REFRESH_TOKEN_AUTH,
+        AuthParameters: {
+          REFRESH_TOKEN: credentials.refreshToken,
+        },
+      }),
+    );
+    return mapAuthenticationOutcome({
+      operation: "refresh-token",
+      response,
+      continuation: {
+        profileId: profile.id,
+      },
+    });
+  } catch (error) {
+    return mapAuthenticationOutcome({
+      operation: "refresh-token",
+      error,
+      continuation: {
         profileId: profile.id,
       },
     });

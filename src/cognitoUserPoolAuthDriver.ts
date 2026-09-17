@@ -63,4 +63,38 @@ export class CognitoUserPoolAuthDriver {
       }
     }, this.retry);
   }
+
+  async refresh(refreshToken: string): Promise<AuthenticationOutcome> {
+    return retryAuthenticationOperation(async () => {
+      try {
+        const response = await this.sender.send(
+          new InitiateAuthCommand({
+            ClientId: this.profile.clientId,
+            AuthFlow: AuthFlowType.REFRESH_TOKEN_AUTH,
+            AuthParameters: {
+              REFRESH_TOKEN: refreshToken,
+            },
+          }),
+        );
+        return mapAuthenticationOutcome({
+          operation: "refresh-token",
+          response,
+          continuation: {
+            profileId: this.profile.id,
+          },
+        });
+      } catch (error) {
+        if (error instanceof OperationalAuthenticationFailure) {
+          throw error;
+        }
+        return mapAuthenticationOutcome({
+          operation: "refresh-token",
+          error,
+          continuation: {
+            profileId: this.profile.id,
+          },
+        });
+      }
+    }, this.retry);
+  }
 }
