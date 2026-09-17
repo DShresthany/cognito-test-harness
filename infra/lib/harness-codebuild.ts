@@ -128,6 +128,17 @@ export class HarnessCodeBuild extends Construct {
         resources: [props.userPool.userPoolArn],
       }),
     );
+    role.addToPolicy(
+      new iam.PolicyStatement({
+        sid: "CognitoDescribeProfiles",
+        actions: [
+          "cognito-idp:DescribeUserPool",
+          "cognito-idp:DescribeUserPoolClient",
+          "cognito-idp:GetUserPoolMfaConfig",
+        ],
+        resources: [props.userPool.userPoolArn],
+      }),
+    );
 
     // CI reads Cognito config from Secrets Manager (pre_build → .env).
     props.cognitoConfigSecret.grantRead(role);
