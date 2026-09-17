@@ -371,11 +371,7 @@ function parseMfaMethods(
     return [];
   }
 
-  return raw.split(",").flatMap((part) => {
-    const name = part.trim();
-    if (!name) {
-      return [];
-    }
+  return parseMfaMethodNames(raw).flatMap((name) => {
     switch (name) {
       case "SOFTWARE_TOKEN_MFA":
         return ["software-token-mfa" as const];
@@ -390,6 +386,23 @@ function parseMfaMethods(
         });
     }
   });
+}
+
+function parseMfaMethodNames(raw: string): string[] {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed.flatMap((value) =>
+      typeof value === "string" ? [value] : [],
+    );
+  } catch {
+    return raw
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
 }
 
 function mapError(

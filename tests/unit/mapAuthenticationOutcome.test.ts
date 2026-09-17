@@ -173,7 +173,9 @@ describe("mapAuthenticationOutcome", () => {
     }> = [
       {
         challengeName: "MFA_SETUP",
-        parameters: { MFAS_CAN_SETUP: "SOFTWARE_TOKEN_MFA,SMS_MFA" },
+        parameters: {
+          MFAS_CAN_SETUP: '["SOFTWARE_TOKEN_MFA","SMS_MFA"]',
+        },
         expected: "mfa-setup",
         extra: { availableMethods: ["software-token-mfa", "sms-mfa"] },
       },
@@ -183,7 +185,7 @@ describe("mapAuthenticationOutcome", () => {
       },
       {
         challengeName: "SELECT_MFA_TYPE",
-        parameters: { MFAS_CAN_CHOOSE: "SOFTWARE_TOKEN_MFA" },
+        parameters: { MFAS_CAN_CHOOSE: '["SOFTWARE_TOKEN_MFA"]' },
         expected: "select-mfa-type",
         extra: { availableMfaMethods: ["software-token-mfa"] },
       },
