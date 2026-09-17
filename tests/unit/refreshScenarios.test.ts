@@ -23,8 +23,9 @@ describe("non-rotating refresh scenario evidence", () => {
           refreshToken: "refresh-secret-value",
         },
       }),
-      refresh: async (token) => {
+      refresh: async (token, subject) => {
         expect(token).toBe("refresh-secret-value");
+        expect(subject).toBe("subject-1");
         return refreshOutcome;
       },
       verifiers: {

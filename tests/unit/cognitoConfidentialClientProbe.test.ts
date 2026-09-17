@@ -22,7 +22,7 @@ describe("confidential refresh probes", () => {
     const outcome = await attemptRefreshWithInvalidSecretHash(
       { send },
       profile,
-      { username: "user@example.com", refreshToken: "refresh-secret" },
+      { subject: "subject-id", refreshToken: "refresh-secret" },
     );
 
     expect(outcome).toMatchObject({
@@ -43,7 +43,7 @@ describe("confidential refresh probes", () => {
     const outcome = await attemptRefreshWithMissingSecretHash(
       { send },
       profile,
-      { username: "user@example.com", refreshToken: "refresh-secret" },
+      { subject: "subject-id", refreshToken: "refresh-secret" },
     );
 
     expect(outcome).toMatchObject({
@@ -59,6 +59,7 @@ describe("confidential refresh probes", () => {
     };
     expect(command.input?.AuthFlow).toBe("REFRESH_TOKEN_AUTH");
     expect(command.input?.AuthParameters?.SECRET_HASH).toBeUndefined();
+    expect(command.input?.AuthParameters?.USERNAME).toBeUndefined();
     expect(command.input?.AuthParameters?.REFRESH_TOKEN).toBe("refresh-secret");
   });
 });

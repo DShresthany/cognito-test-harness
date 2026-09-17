@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { CognitoAdminAuthDriver } from "../../src/cognitoAdminAuthDriver.js";
+import { getSecretHash } from "../../src/secretHash.js";
 
 const profile = {
   id: "admin-confidential" as const,
@@ -159,7 +160,7 @@ describe("CognitoAdminAuthDriver", () => {
     expect(send).toHaveBeenCalledTimes(3);
   });
 
-  it("refreshes with REFRESH_TOKEN_AUTH and returns access and ID without a replacement refresh token", async () => {
+  it("refreshes with REFRESH_TOKEN_AUTH hashing sub and omitting USERNAME", async () => {
     const send = vi.fn().mockResolvedValue({
       AuthenticationResult: {
         AccessToken: "new-access",
@@ -167,10 +168,9 @@ describe("CognitoAdminAuthDriver", () => {
       },
     });
     const driver = new CognitoAdminAuthDriver({ send }, profile);
+    const subject = "11111111-2222-3333-4444-555555555555";
 
-    await expect(
-      driver.refresh("user@example.com", "refresh-token"),
-    ).resolves.toEqual({
+    await expect(driver.refresh(subject, "refresh-token")).resolves.toEqual({
       kind: "authenticated",
       tokens: {
         accessToken: "new-access",
@@ -189,10 +189,15 @@ describe("CognitoAdminAuthDriver", () => {
     expect(command.input?.AuthFlow).toBe("REFRESH_TOKEN_AUTH");
     expect(command.input?.UserPoolId).toBe("pool-id");
     expect(command.input?.ClientId).toBe("client-id");
-    expect(command.input?.AuthParameters?.REFRESH_TOKEN).toBe("refresh-token");
-    expect(command.input?.AuthParameters?.USERNAME).toBe("user@example.com");
-    expect(command.input?.AuthParameters?.SECRET_HASH).toBeDefined();
-    expect(command.input?.AuthParameters?.PASSWORD).toBeUndefined();
+    expect(command.input?.AuthParameters).toEqual({
+      REFRESH_TOKEN: "refresh-token",
+      SECRET_HASH: getSecretHash(
+        subject,
+        profile.clientId,
+        profile.clientSecret,
+      ),
+    });
+    expect(command.input?.AuthParameters?.USERNAME).toBeUndefined();
   });
 
   it("rejects a malformed refresh token as invalid-refresh-token", async () => {
@@ -204,7 +209,7 @@ describe("CognitoAdminAuthDriver", () => {
     const driver = new CognitoAdminAuthDriver({ send }, profile);
 
     await expect(
-      driver.refresh("user@example.com", "not-a-refresh-token"),
+      driver.refresh("subject-id", "not-a-refresh-token"),
     ).resolves.toMatchObject({
       kind: "rejected",
       rejection: { reason: "invalid-refresh-token" },

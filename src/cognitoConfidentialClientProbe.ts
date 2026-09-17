@@ -18,7 +18,8 @@ type Credentials = {
 };
 
 type RefreshCredentials = {
-  username: string;
+  /** Access/ID token `sub` — required for confidential SECRET_HASH on refresh. */
+  subject: string;
   refreshToken: string;
 };
 
@@ -81,7 +82,7 @@ export function attemptRefreshWithInvalidSecretHash(
     ...profile,
     clientSecret: `${profile.clientSecret}-wrong`,
   });
-  return driver.refresh(credentials.username, credentials.refreshToken);
+  return driver.refresh(credentials.subject, credentials.refreshToken);
 }
 
 /** Missing SECRET_HASH on confidential refresh — domain invalid-refresh-token. */
@@ -97,7 +98,6 @@ export async function attemptRefreshWithMissingSecretHash(
         ClientId: profile.clientId,
         AuthFlow: AuthFlowType.REFRESH_TOKEN_AUTH,
         AuthParameters: {
-          USERNAME: credentials.username,
           REFRESH_TOKEN: credentials.refreshToken,
         },
       }),
@@ -106,7 +106,6 @@ export async function attemptRefreshWithMissingSecretHash(
       operation: "refresh-token",
       response,
       continuation: {
-        username: credentials.username,
         profileId: profile.id,
       },
     });
@@ -115,7 +114,6 @@ export async function attemptRefreshWithMissingSecretHash(
       operation: "refresh-token",
       error,
       continuation: {
-        username: credentials.username,
         profileId: profile.id,
       },
     });

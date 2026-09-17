@@ -90,8 +90,8 @@ describe("RF non-rotating refresh scenarios", () => {
     const evidence = await runValidRefreshScenario({
       authenticate: (username, password) =>
         adminDriver.authenticatePassword(username, password),
-      refresh: (refreshToken) =>
-        adminDriver.refresh(persona.username, refreshToken),
+      refresh: (refreshToken, subject) =>
+        adminDriver.refresh(subject, refreshToken),
       verifiers: adminVerifiers,
       username: persona.username,
       password: persona.password,
@@ -134,7 +134,7 @@ describe("RF non-rotating refresh scenarios", () => {
 
   it("RF-3: malformed refresh token is invalid-refresh-token", async () => {
     const adminEvidence = await runRejectedRefreshScenario({
-      refresh: (token) => adminDriver.refresh("anyone@example.com", token),
+      refresh: (token) => adminDriver.refresh("unused-subject", token),
       refreshToken: "not-a-real-refresh-token",
     });
     const publicEvidence = await runRejectedRefreshScenario({
@@ -188,8 +188,9 @@ describe("RF non-rotating refresh scenarios", () => {
       await adminDriver.authenticatePassword(persona.username, persona.password),
     );
     expect(tokens.refreshToken).toBeTruthy();
+    const accessClaims = await adminVerifiers.access.verify(tokens.accessToken);
     const credentials = {
-      username: persona.username,
+      subject: accessClaims.sub,
       refreshToken: tokens.refreshToken!,
     };
 

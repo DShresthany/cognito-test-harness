@@ -74,8 +74,13 @@ export class CognitoAdminAuthDriver {
     }, this.retry);
   }
 
+  /**
+   * Refresh with SECRET_HASH keyed by the user's `sub` (required when the pool
+   * signs in with email only). Cognito binds the user from the refresh token;
+   * do not send USERNAME.
+   */
   async refresh(
-    username: string,
+    subject: string,
     refreshToken: string,
   ): Promise<AuthenticationOutcome> {
     return retryAuthenticationOperation(async () => {
@@ -86,10 +91,9 @@ export class CognitoAdminAuthDriver {
             ClientId: this.profile.clientId,
             AuthFlow: AuthFlowType.REFRESH_TOKEN_AUTH,
             AuthParameters: {
-              USERNAME: username,
               REFRESH_TOKEN: refreshToken,
               SECRET_HASH: getSecretHash(
-                username,
+                subject,
                 this.profile.clientId,
                 this.profile.clientSecret,
               ),
@@ -100,7 +104,6 @@ export class CognitoAdminAuthDriver {
           operation: "refresh-token",
           response,
           continuation: {
-            username,
             profileId: this.profile.id,
           },
         });
@@ -112,7 +115,6 @@ export class CognitoAdminAuthDriver {
           operation: "refresh-token",
           error,
           continuation: {
-            username,
             profileId: this.profile.id,
           },
         });

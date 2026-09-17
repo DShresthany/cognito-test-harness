@@ -64,7 +64,10 @@ export async function runValidRefreshScenario(input: {
     username: string,
     password: string,
   ) => Promise<AuthenticationOutcome>;
-  refresh: (refreshToken: string) => Promise<AuthenticationOutcome>;
+  refresh: (
+    refreshToken: string,
+    subject: string,
+  ) => Promise<AuthenticationOutcome>;
   verifiers: ProfileTokenVerifiers;
   username: string;
   password: string;
@@ -80,7 +83,7 @@ export async function runValidRefreshScenario(input: {
   const previousId = await input.verifiers.id.verify(signIn.tokens.idToken);
   const refreshToken = signIn.tokens.refreshToken;
 
-  const refreshed = await input.refresh(refreshToken);
+  const refreshed = await input.refresh(refreshToken, previousAccess.sub);
   if (refreshed.kind !== "authenticated") {
     return toRefreshScenarioEvidence(refreshed);
   }
