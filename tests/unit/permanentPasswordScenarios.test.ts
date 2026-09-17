@@ -1,10 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AuthenticationOutcome } from "../../src/authenticationOutcome.js";
+import { FetchError } from "aws-jwt-verify/error";
+import {
+  OperationalAuthenticationFailure,
+  type AuthenticationOutcome,
+} from "../../src/authenticationOutcome.js";
+import { wrapAccessTokenVerifier } from "../../src/jwtVerifier.js";
 import {
   runRejectedPasswordScenario,
   runTokenVerificationScenario,
   runValidPermanentPasswordScenario,
   toPasswordScenarioEvidence,
+  verifyQuietly,
 } from "../../src/permanentPasswordScenarios.js";
 
 describe("permanent password scenario evidence", () => {
@@ -88,6 +94,13 @@ describe("permanent password scenario evidence", () => {
   });
 
   it("reports token verification matrix without returning raw tokens", async () => {
+    const otherAccess = vi.fn(async () => {
+      throw new Error("wrong client");
+    });
+    const otherId = vi.fn(async () => {
+      throw new Error("wrong client");
+    });
+
     const evidence = await runTokenVerificationScenario({
       tokens: {
         accessToken: "access.payload.sig",
@@ -113,16 +126,8 @@ describe("permanent password scenario evidence", () => {
         },
       },
       otherProfile: {
-        access: {
-          verify: vi.fn(async () => {
-            throw new Error("wrong client");
-          }),
-        },
-        id: {
-          verify: vi.fn(async () => {
-            throw new Error("wrong client");
-          }),
-        },
+        access: { verify: otherAccess },
+        id: { verify: otherId },
       },
     });
 
@@ -134,8 +139,56 @@ describe("permanent password scenario evidence", () => {
       tamperedAccessRejected: true,
       tamperedIdRejected: true,
       crossProfileAccessRejected: true,
+      crossProfileIdRejected: true,
     });
+    expect(otherAccess).toHaveBeenCalledWith("access.payload.sig");
+    expect(otherId).toHaveBeenCalledWith("id.payload.sig");
     expect(JSON.stringify(evidence)).not.toContain("access.payload.sig");
     expect(JSON.stringify(evidence)).not.toContain("refresh-opaque");
+  });
+
+  it("does not treat wrapped JWKS FetchError as token rejection", async () => {
+    const wrapped = wrapAccessTokenVerifier({
+      async verify() {
+        throw new FetchError("https://example.invalid/jwks", "network down");
+      },
+    });
+
+    await expect(verifyQuietly(wrapped.verify("access-token"))).rejects.toBeInstanceOf(
+      OperationalAuthenticationFailure,
+    );
+    await expect(verifyQuietly(wrapped.verify("access-token"))).rejects.toMatchObject({
+      category: "network",
+      operation: "verify-access-token",
+      retryable: true,
+    });
+  });
+
+  it("propagates operational JWKS failure from valid password scenario", async () => {
+    await expect(
+      runValidPermanentPasswordScenario({
+        authenticate: async () => ({
+          kind: "authenticated",
+          tokens: {
+            accessToken: "access-token",
+            idToken: "id-token",
+            refreshToken: "refresh-token",
+          },
+        }),
+        verifiers: {
+          access: wrapAccessTokenVerifier({
+            async verify() {
+              throw new FetchError(
+                "https://example.invalid/jwks",
+                "network down",
+              );
+            },
+          }),
+          id: { verify: vi.fn().mockResolvedValue({ sub: "sub" }) },
+        },
+        username: "user@example.com",
+        password: "Password1!",
+      }),
+    ).rejects.toBeInstanceOf(OperationalAuthenticationFailure);
   });
 });

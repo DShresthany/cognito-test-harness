@@ -269,6 +269,7 @@ describe("TV profile JWT checks", () => {
       tamperedAccessRejected: true,
       tamperedIdRejected: true,
       crossProfileAccessRejected: true,
+      crossProfileIdRejected: true,
     };
     expect(adminEvidence).toEqual(expected);
     expect(publicEvidence).toEqual(expected);

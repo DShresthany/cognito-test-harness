@@ -1,7 +1,8 @@
-import type {
-  AuthenticationOutcome,
-  AuthenticationRejectionReason,
-  CognitoTokenSet,
+import {
+  OperationalAuthenticationFailure,
+  type AuthenticationOutcome,
+  type AuthenticationRejectionReason,
+  type CognitoTokenSet,
 } from "./authenticationOutcome.js";
 import type { ProfileTokenVerifiers } from "./jwtVerifier.js";
 
@@ -22,6 +23,7 @@ export type TokenVerificationEvidence = {
   tamperedAccessRejected: boolean;
   tamperedIdRejected: boolean;
   crossProfileAccessRejected: boolean;
+  crossProfileIdRejected: boolean;
 };
 
 export function toPasswordScenarioEvidence(
@@ -126,14 +128,26 @@ export async function runTokenVerificationScenario(input: {
     crossProfileAccessRejected: !(await verifyQuietly(
       otherProfile.access.verify(tokens.accessToken),
     )),
+    crossProfileIdRejected: !(await verifyQuietly(
+      otherProfile.id.verify(tokens.idToken),
+    )),
   };
 }
 
-async function verifyQuietly(promise: Promise<unknown>): Promise<boolean> {
+/**
+ * Token cryptographic/client binding failures become false.
+ * Operational JWKS/network/configuration failures must surface.
+ */
+export async function verifyQuietly(
+  promise: Promise<unknown>,
+): Promise<boolean> {
   try {
     await promise;
     return true;
-  } catch {
+  } catch (error) {
+    if (error instanceof OperationalAuthenticationFailure) {
+      throw error;
+    }
     return false;
   }
 }
