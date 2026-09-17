@@ -155,4 +155,87 @@ describe("CognitoUserPoolAuthDriver", () => {
       rejection: { reason: "invalid-refresh-token" },
     });
   });
+
+  it("continues NEW_PASSWORD_REQUIRED via public RespondToAuthChallenge without storing session", async () => {
+    const send = vi.fn().mockResolvedValue({
+      AuthenticationResult: {
+        AccessToken: "access-token",
+        IdToken: "id-token",
+        RefreshToken: "refresh-token",
+      },
+    });
+    const driver = new CognitoUserPoolAuthDriver({ send }, profile);
+
+    await expect(
+      driver.respondToNewPasswordChallenge({
+        session: "opaque-session",
+        username: "canonical-user",
+        newPassword: "NewPassword1!",
+      }),
+    ).resolves.toEqual({
+      kind: "authenticated",
+      tokens: {
+        accessToken: "access-token",
+        idToken: "id-token",
+        refreshToken: "refresh-token",
+      },
+    });
+
+    const command = send.mock.calls[0]?.[0] as {
+      input?: {
+        ChallengeName?: string;
+        ClientId?: string;
+        Session?: string;
+        ChallengeResponses?: Record<string, string>;
+      };
+    };
+    expect(command.input?.ChallengeName).toBe("NEW_PASSWORD_REQUIRED");
+    expect(command.input?.ClientId).toBe("public-client-id");
+    expect(command.input?.Session).toBe("opaque-session");
+    expect(command.input?.ChallengeResponses).toEqual({
+      USERNAME: "canonical-user",
+      NEW_PASSWORD: "NewPassword1!",
+    });
+    expect(driver).not.toHaveProperty("session");
+  });
+
+  it("rejects a policy-violating new password as password-policy-violation", async () => {
+    const send = vi.fn().mockRejectedValue(
+      Object.assign(new Error("Password does not conform"), {
+        name: "InvalidPasswordException",
+      }),
+    );
+    const driver = new CognitoUserPoolAuthDriver({ send }, profile);
+
+    await expect(
+      driver.respondToNewPasswordChallenge({
+        session: "opaque-session",
+        username: "canonical-user",
+        newPassword: "short",
+      }),
+    ).resolves.toMatchObject({
+      kind: "rejected",
+      rejection: { reason: "password-policy-violation" },
+    });
+  });
+
+  it("rejects an invalid challenge session as invalid-challenge-session", async () => {
+    const send = vi.fn().mockRejectedValue(
+      Object.assign(new Error("Invalid session for the user."), {
+        name: "NotAuthorizedException",
+      }),
+    );
+    const driver = new CognitoUserPoolAuthDriver({ send }, profile);
+
+    await expect(
+      driver.respondToNewPasswordChallenge({
+        session: "stale-session",
+        username: "canonical-user",
+        newPassword: "NewPassword1!",
+      }),
+    ).resolves.toMatchObject({
+      kind: "rejected",
+      rejection: { reason: "invalid-challenge-session" },
+    });
+  });
 });

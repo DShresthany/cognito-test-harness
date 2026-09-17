@@ -116,6 +116,8 @@ export type MapAuthenticationOutcomeInput = {
   operation: AuthenticationOperation;
   response?: CognitoAuthResponse;
   error?: unknown;
+  /** Cognito challenge name when known — disambiguates shared provider errors. */
+  challengeName?: string;
   continuation?: {
     username?: string;
     profileId: string;
@@ -183,7 +185,7 @@ export function mapAuthenticationOutcome(
   input: MapAuthenticationOutcomeInput,
 ): AuthenticationOutcome {
   if (input.error !== undefined) {
-    return mapError(input.operation, input.error);
+    return mapError(input.operation, input.error, input.challengeName);
   }
 
   return mapResponse(input);
@@ -409,6 +411,7 @@ function parseMfaMethodNames(raw: string): string[] {
 function mapError(
   operation: AuthenticationOperation,
   error: unknown,
+  challengeName?: string,
 ): AuthenticationOutcome {
   const name = errorName(error);
   const requestId = requestIdOf(error);
@@ -458,7 +461,10 @@ function mapError(
       return {
         kind: "rejected",
         rejection: {
-          reason: "invalid-code",
+          reason:
+            challengeName === "NEW_PASSWORD_REQUIRED"
+              ? "invalid-challenge-session"
+              : "invalid-code",
           diagnostic,
         },
       };

@@ -1,6 +1,8 @@
 import {
   AuthFlowType,
+  ChallengeNameType,
   InitiateAuthCommand,
+  RespondToAuthChallengeCommand,
 } from "@aws-sdk/client-cognito-identity-provider";
 import {
   mapAuthenticationOutcome,
@@ -15,6 +17,12 @@ export type PublicUserPoolAuthProfile = {
   id: "user-pool-public";
   userPoolId: string;
   clientId: string;
+};
+
+export type NewPasswordChallengeInput = {
+  session: string;
+  username: string;
+  newPassword: string;
 };
 
 export class CognitoUserPoolAuthDriver {
@@ -91,6 +99,50 @@ export class CognitoUserPoolAuthDriver {
           operation: "refresh-token",
           error,
           continuation: {
+            profileId: this.profile.id,
+          },
+        });
+      }
+    }, this.retry);
+  }
+
+  async respondToNewPasswordChallenge(
+    input: NewPasswordChallengeInput,
+  ): Promise<AuthenticationOutcome> {
+    return retryAuthenticationOperation(async () => {
+      const challengeResponses: Record<string, string> = {
+        USERNAME: input.username,
+        NEW_PASSWORD: input.newPassword,
+      };
+
+      try {
+        const response = await this.sender.send(
+          new RespondToAuthChallengeCommand({
+            ClientId: this.profile.clientId,
+            ChallengeName: ChallengeNameType.NEW_PASSWORD_REQUIRED,
+            Session: input.session,
+            ChallengeResponses: challengeResponses,
+          }),
+        );
+        return mapAuthenticationOutcome({
+          operation: "respond-to-auth-challenge",
+          response,
+          challengeName: ChallengeNameType.NEW_PASSWORD_REQUIRED,
+          continuation: {
+            username: input.username,
+            profileId: this.profile.id,
+          },
+        });
+      } catch (error) {
+        if (error instanceof OperationalAuthenticationFailure) {
+          throw error;
+        }
+        return mapAuthenticationOutcome({
+          operation: "respond-to-auth-challenge",
+          error,
+          challengeName: ChallengeNameType.NEW_PASSWORD_REQUIRED,
+          continuation: {
+            username: input.username,
             profileId: this.profile.id,
           },
         });
