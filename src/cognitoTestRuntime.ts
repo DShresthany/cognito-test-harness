@@ -333,10 +333,29 @@ function assertDuration(
   value: number | undefined,
   unit: string | undefined,
   expectedValue: number,
-  expectedUnit: string,
+  expectedUnit: "hours" | "days",
 ): void {
-  if (value !== expectedValue || (unit ?? expectedUnit) !== expectedUnit) {
+  if (value === undefined) {
     throw drift(path, "token lifetime drift");
+  }
+  const actualMinutes = toMinutes(value, unit ?? expectedUnit);
+  const expectedMinutes = toMinutes(expectedValue, expectedUnit);
+  if (actualMinutes !== expectedMinutes) {
+    throw drift(path, "token lifetime drift");
+  }
+}
+
+/** Cognito/CDK often report the same lifetime as minutes instead of hours/days. */
+function toMinutes(value: number, unit: string): number {
+  switch (unit) {
+    case "minutes":
+      return value;
+    case "hours":
+      return value * 60;
+    case "days":
+      return value * 24 * 60;
+    default:
+      throw drift("TokenValidityUnits", `unsupported unit ${unit}`);
   }
 }
 

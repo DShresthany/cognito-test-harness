@@ -155,6 +155,45 @@ describe("createCognitoTestRuntime", () => {
     }
   });
 
+  it("tolerates Cognito/CDK minute-encoded token lifetimes equivalent to hours/days", async () => {
+    const root = await mkdtemp(join(tmpdir(), "cognito-runtime-"));
+    const configPath = join(root, "config.json");
+    await writeFile(configPath, JSON.stringify(v2Document));
+
+    const confidential = confidentialClientOk();
+    confidential.UserPoolClient.AccessTokenValidity = 60;
+    confidential.UserPoolClient.IdTokenValidity = 60;
+    confidential.UserPoolClient.RefreshTokenValidity = 43200;
+    confidential.UserPoolClient.TokenValidityUnits = {
+      AccessToken: "minutes",
+      IdToken: "minutes",
+      RefreshToken: "minutes",
+    };
+    const publicClient = publicClientOk();
+    publicClient.UserPoolClient.AccessTokenValidity = 60;
+    publicClient.UserPoolClient.IdTokenValidity = 60;
+    publicClient.UserPoolClient.RefreshTokenValidity = 43200;
+    publicClient.UserPoolClient.TokenValidityUnits = {
+      AccessToken: "minutes",
+      IdToken: "minutes",
+      RefreshToken: "minutes",
+    };
+
+    try {
+      await createCognitoTestRuntime({
+        configPath,
+        describeUserPool: vi.fn().mockResolvedValue(poolOk()),
+        getUserPoolMfaConfig: vi.fn().mockResolvedValue(mfaOk()),
+        describeUserPoolClient: vi
+          .fn()
+          .mockResolvedValueOnce(confidential)
+          .mockResolvedValueOnce(publicClient),
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("fails when a required profile is missing from the manifest", async () => {
     const root = await mkdtemp(join(tmpdir(), "cognito-runtime-"));
     const configPath = join(root, "config.json");
