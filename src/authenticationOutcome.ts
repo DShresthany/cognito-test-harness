@@ -731,6 +731,23 @@ function operationalCategoryOf(
   }
 }
 
+export function requireAuthenticated(
+  outcome: AuthenticationOutcome,
+): CognitoTokenSet {
+  switch (outcome.kind) {
+    case "authenticated":
+      return outcome.tokens;
+    case "challenged":
+      throw new Error("expected authenticated outcome, received challenged");
+    case "rejected":
+      throw new Error("expected authenticated outcome, received rejected");
+    default: {
+      const exhaustive: never = outcome;
+      return assertNever(exhaustive);
+    }
+  }
+}
+
 export function toSafeDiagnostic(
   value: AuthenticationOutcome | OperationalAuthenticationFailure,
   context: { operation: AuthenticationOperation; profileId?: string },

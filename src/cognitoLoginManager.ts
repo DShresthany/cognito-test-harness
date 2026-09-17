@@ -1,19 +1,19 @@
-import {
-  AdminInitiateAuthCommand,
-  AuthFlowType,
-  CognitoIdentityProviderClient,
-} from "@aws-sdk/client-cognito-identity-provider";
+import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
+import { requireAuthenticated } from "./authenticationOutcome.js";
 import type {
   CognitoAuthResult,
   CognitoTokens,
 } from "./cognitoAuthResult.js";
 import { createCognitoClient, required } from "./cognitoAuth.js";
 import {
+  CognitoAdminAuthDriver,
+  type ConfidentialAdminAuthProfile,
+} from "./cognitoAdminAuthDriver.js";
+import {
   CognitoUserFixtureManager,
   createCognitoFixtureCommands,
 } from "./cognitoUserFixtureManager.js";
 import type { TestUser } from "./loadTestUsers.js";
-import { getSecretHash } from "./secretHash.js";
 
 export class CognitoLoginManager {
   readonly runId: string;
@@ -23,17 +23,25 @@ export class CognitoLoginManager {
     { username: string; password: string }
   >();
   private readonly fixtures: CognitoUserFixtureManager;
+  private readonly driver: CognitoAdminAuthDriver;
 
   constructor(
-    private client: CognitoIdentityProviderClient,
-    private userPoolId: string,
-    private clientId: string,
-    private clientSecret: string,
+    client: CognitoIdentityProviderClient,
+    userPoolId: string,
+    clientId: string,
+    clientSecret: string,
   ) {
     this.fixtures = new CognitoUserFixtureManager(
       createCognitoFixtureCommands(client, userPoolId),
     );
     this.runId = this.fixtures.runId;
+    const profile: ConfidentialAdminAuthProfile = {
+      id: "admin-confidential",
+      userPoolId,
+      clientId,
+      clientSecret,
+    };
+    this.driver = new CognitoAdminAuthDriver(client, profile);
   }
 
   static fromEnv(): CognitoLoginManager {
@@ -86,28 +94,13 @@ export class CognitoLoginManager {
     username: string,
     password: string,
   ): Promise<CognitoTokens> {
-    const result = await this.client.send(
-      new AdminInitiateAuthCommand({
-        UserPoolId: this.userPoolId,
-        ClientId: this.clientId,
-        AuthFlow: AuthFlowType.ADMIN_USER_PASSWORD_AUTH,
-        AuthParameters: {
-          USERNAME: username,
-          PASSWORD: password,
-          SECRET_HASH: getSecretHash(username, this.clientId, this.clientSecret),
-        },
-      })
+    const tokens = requireAuthenticated(
+      await this.driver.authenticatePassword(username, password),
     );
-
-    const auth = result.AuthenticationResult;
-    if (!auth?.AccessToken || !auth.IdToken) {
-      throw new Error(`AdminInitiateAuth returned no tokens for ${username}`);
-    }
-
     return {
-      accessToken: auth.AccessToken,
-      idToken: auth.IdToken,
-      ...(auth.RefreshToken ? { refreshToken: auth.RefreshToken } : {}),
+      accessToken: tokens.accessToken,
+      idToken: tokens.idToken,
+      ...(tokens.refreshToken ? { refreshToken: tokens.refreshToken } : {}),
     };
   }
 
