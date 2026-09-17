@@ -1,9 +1,14 @@
-import { NotAuthorizedException } from "@aws-sdk/client-cognito-identity-provider";
 import { config } from "dotenv";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../../src/app.js";
+import {
+  CognitoAdminAuthDriver,
+  type ConfidentialAdminAuthProfile,
+} from "../../src/cognitoAdminAuthDriver.js";
+import { createCognitoClient, required } from "../../src/cognitoAuth.js";
 import { attemptLoginWithInvalidSecretHash } from "../../src/cognitoConfidentialClientProbe.js";
 import { CognitoLoginManager } from "../../src/cognitoLoginManager.js";
+import { createAccessTokenVerifierPort } from "../../src/jwtVerifier.js";
 import { loadTestUsers } from "../../src/loadTestUsers.js";
 
 config();
@@ -12,11 +17,33 @@ const users = loadTestUsers();
 
 let manager: CognitoLoginManager;
 let app: ReturnType<typeof createApp>;
+let client: ReturnType<typeof createCognitoClient>;
+let profile: ConfidentialAdminAuthProfile;
 
 beforeAll(async () => {
   // Cognito env (pool/client/secret) is read here, not at module load.
-  manager = CognitoLoginManager.fromEnv();
-  app = createApp(manager);
+  client = createCognitoClient();
+  profile = {
+    id: "admin-confidential",
+    userPoolId: required("COGNITO_USER_POOL_ID"),
+    clientId: required("COGNITO_CLIENT_ID"),
+    clientSecret: required("COGNITO_CLIENT_SECRET"),
+  };
+  manager = new CognitoLoginManager(
+    client,
+    profile.userPoolId,
+    profile.clientId,
+    profile.clientSecret,
+  );
+  const driver = new CognitoAdminAuthDriver(client, profile);
+  app = createApp({
+    authenticatePassword: {
+      authenticate: (username, password) =>
+        driver.authenticatePassword(username, password),
+    },
+    verifyAccessToken: createAccessTokenVerifierPort(),
+    reportDiagnostic: { report() {} },
+  });
   await manager.setupUsers(users);
 }, 90_000);
 
@@ -142,9 +169,15 @@ describe("confidential client SECRET_HASH", () => {
   it("rejects AdminInitiateAuth with a wrong SECRET_HASH", async () => {
     const creds = manager.getCredentials("smoke");
 
-    await expect(attemptLoginWithInvalidSecretHash(creds)).rejects.toBeInstanceOf(
-      NotAuthorizedException,
+    const outcome = await attemptLoginWithInvalidSecretHash(
+      client,
+      profile,
+      creds,
     );
+    expect(outcome).toMatchObject({
+      kind: "rejected",
+      rejection: { reason: "invalid-credentials" },
+    });
   });
 });
 

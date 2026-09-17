@@ -1,38 +1,48 @@
-import { randomUUID } from "node:crypto";
-import {
-  AdminCreateUserCommand,
-  AdminDeleteUserCommand,
-  AdminInitiateAuthCommand,
-  AdminSetUserPasswordCommand,
-  AuthFlowType,
-  CognitoIdentityProviderClient,
-  MessageActionType,
-  UserNotFoundException,
-} from "@aws-sdk/client-cognito-identity-provider";
+import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
+import { requireAuthenticated } from "./authenticationOutcome.js";
 import type {
   CognitoAuthResult,
   CognitoTokens,
 } from "./cognitoAuthResult.js";
 import { createCognitoClient, required } from "./cognitoAuth.js";
+import {
+  CognitoAdminAuthDriver,
+  type ConfidentialAdminAuthProfile,
+} from "./cognitoAdminAuthDriver.js";
+import {
+  CognitoUserFixtureManager,
+  createCognitoFixtureCommands,
+} from "./cognitoUserFixtureManager.js";
 import type { TestUser } from "./loadTestUsers.js";
-import { randomPassword } from "./randomPassword.js";
-import { getSecretHash } from "./secretHash.js";
 
 export class CognitoLoginManager {
-  readonly runId = randomUUID();
+  readonly runId: string;
   private readonly authResults: CognitoAuthResult[] = [];
-  private readonly createdUsernames: string[] = [];
   private readonly credentials = new Map<
     string,
     { username: string; password: string }
   >();
+  private readonly fixtures: CognitoUserFixtureManager;
+  private readonly driver: CognitoAdminAuthDriver;
 
   constructor(
-    private client: CognitoIdentityProviderClient,
-    private userPoolId: string,
-    private clientId: string,
-    private clientSecret: string
-  ) {}
+    client: CognitoIdentityProviderClient,
+    userPoolId: string,
+    clientId: string,
+    clientSecret: string,
+  ) {
+    this.fixtures = new CognitoUserFixtureManager(
+      createCognitoFixtureCommands(client, userPoolId),
+    );
+    this.runId = this.fixtures.runId;
+    const profile: ConfidentialAdminAuthProfile = {
+      id: "admin-confidential",
+      userPoolId,
+      clientId,
+      clientSecret,
+    };
+    this.driver = new CognitoAdminAuthDriver(client, profile);
+  }
 
   static fromEnv(): CognitoLoginManager {
     return new CognitoLoginManager(
@@ -61,19 +71,18 @@ export class CognitoLoginManager {
 
   async setupUsers(users: TestUser[]): Promise<readonly CognitoAuthResult[]> {
     for (const user of users) {
-      // This pool requires Username to be an email; uniqueness comes from +runId.
-      const email = `${user.emailPrefix}+${this.runId}@gmail.com`;
-      const password = randomPassword();
-      const cognitoUsername = await this.signupUser(email, email, password);
-      this.credentials.set(user.key, {
-        username: cognitoUsername,
-        password,
+      const persona = await this.fixtures.provision(user, {
+        kind: "permanent-password",
       });
-      const tokens = await this.login(cognitoUsername, password);
+      this.credentials.set(user.key, {
+        username: persona.username,
+        password: persona.password,
+      });
+      const tokens = await this.login(persona.username, persona.password);
       const auth: CognitoAuthResult = {
         key: user.key,
-        email,
-        username: cognitoUsername,
+        email: persona.email,
+        username: persona.username,
         ...tokens,
       };
       this.authResults.push(auth);
@@ -81,114 +90,25 @@ export class CognitoLoginManager {
     return [...this.authResults];
   }
 
-  private async signupUser(
-    username: string,
-    email: string,
-    password: string
-  ): Promise<string> {
-    const created = await this.client.send(
-      new AdminCreateUserCommand({
-        UserPoolId: this.userPoolId,
-        Username: username,
-        MessageAction: MessageActionType.SUPPRESS,
-        UserAttributes: [
-          { Name: "email", Value: email },
-          { Name: "email_verified", Value: "true" },
-        ],
-      }),
-    );
-    username = created.User?.Username ?? username;
-    this.createdUsernames.push(username);
-
-    await this.client.send(
-      new AdminSetUserPasswordCommand({
-        UserPoolId: this.userPoolId,
-        Username: username,
-        Password: password,
-        Permanent: true,
-      })
-    );
-
-    return username;
-  }
-
   async login(
     username: string,
     password: string,
   ): Promise<CognitoTokens> {
-    const result = await this.client.send(
-      new AdminInitiateAuthCommand({
-        UserPoolId: this.userPoolId,
-        ClientId: this.clientId,
-        AuthFlow: AuthFlowType.ADMIN_USER_PASSWORD_AUTH,
-        AuthParameters: {
-          USERNAME: username,
-          PASSWORD: password,
-          SECRET_HASH: getSecretHash(username, this.clientId, this.clientSecret),
-        },
-      })
+    const tokens = requireAuthenticated(
+      await this.driver.authenticatePassword(username, password),
     );
-
-    const auth = result.AuthenticationResult;
-    if (!auth?.AccessToken || !auth.IdToken) {
-      throw new Error(`AdminInitiateAuth returned no tokens for ${username}`);
-    }
-
     return {
-      accessToken: auth.AccessToken,
-      idToken: auth.IdToken,
-      ...(auth.RefreshToken ? { refreshToken: auth.RefreshToken } : {}),
+      accessToken: tokens.accessToken,
+      idToken: tokens.idToken,
+      ...(tokens.refreshToken ? { refreshToken: tokens.refreshToken } : {}),
     };
   }
 
   /**
-   * Best-effort delete of users created this run. One failure does not skip the rest;
-   * already-deleted users (UserNotFound) are ignored. Throws after all attempts if
-   * any other delete failed.
+   * Best-effort delete of users created this run. Delegates to the fixture manager
+   * so authentication code does not delete users.
    */
   async cleanup(): Promise<void> {
-    const usernames = [
-      ...new Set([
-        ...this.createdUsernames,
-        ...this.authResults.map((auth) => auth.username),
-      ]),
-    ];
-
-    const results = await Promise.allSettled(
-      usernames.map(async (username) => {
-        try {
-          await this.client.send(
-            new AdminDeleteUserCommand({
-              UserPoolId: this.userPoolId,
-              Username: username,
-            }),
-          );
-        } catch (error) {
-          if (error instanceof UserNotFoundException) {
-            return;
-          }
-          throw error;
-        }
-      }),
-    );
-
-    const failures = results.flatMap((result, i) => {
-      if (result.status !== "rejected") {
-        return [];
-      }
-      const username = usernames[i]!;
-      const reason =
-        result.reason instanceof Error
-          ? result.reason.message
-          : String(result.reason);
-      console.warn(`cleanup: failed to delete Cognito user ${username}: ${reason}`);
-      return [`${username}: ${reason}`];
-    });
-
-    if (failures.length > 0) {
-      throw new Error(
-        `cleanup: ${failures.length}/${usernames.length} user delete(s) failed:\n${failures.join("\n")}`,
-      );
-    }
+    await this.fixtures.cleanup();
   }
 }

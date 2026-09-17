@@ -49,5 +49,5 @@ new CognitoHarnessStack(app, "CognitoHarnessStack", {
   ...(githubOwner ? { githubOwner } : {}),
   ...(githubRepo ? { githubRepo } : {}),
   description:
-    "Cognito User Pool + confidential client + CodeBuild CI for the cognito-test-harness",
+    "Cognito User Pool + confidential and public clients + CodeBuild CI for the cognito-test-harness",
 });
