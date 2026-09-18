@@ -45,7 +45,7 @@ export AWS_REGION=us-east-1
 npm run env:pull
 ```
 
-Secret name: `cognito-test-harness/cognito` (JSON: legacy `userPoolId`, `clientId`, `clientSecret`, `region`, plus schema version 2 `profiles` for `admin-confidential` and `user-pool-public`).  
+Secret name: `cognito-test-harness/cognito` (JSON schema version 2: `region`, `userPoolId`, `profiles` for `admin-confidential` and `user-pool-public`).  
 Stack output `CognitoConfigSecretName` points at that secret. Pool/client ids and region are also non-secret stack outputs — the **client secret is not** a CloudFormation output.
 
 `env:pull` materializes owner-only `.cognito/config.json` (full secret JSON) and a bootstrap `.env` with `AWS_PROFILE`, `AWS_REGION`, and `COGNITO_CONFIG_PATH` only — no pool/client/secret env vars. Runtime and integration tests load profiles from that config path and run a live DescribeUserPoolClient preflight.

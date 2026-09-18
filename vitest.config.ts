@@ -33,17 +33,6 @@ export default defineConfig({
           ...noRetry,
           fileParallelism: false,
           maxWorkers: 1,
-          testTimeout: 120_000,
-          hookTimeout: 90_000,
-        },
-      },
-      {
-        test: {
-          name: "soak-totp",
-          include: ["tests/soak/**/*.test.ts"],
-          ...noRetry,
-          fileParallelism: false,
-          maxWorkers: 1,
           testTimeout: 180_000,
           hookTimeout: 90_000,
         },

@@ -3,7 +3,7 @@
  * Pure contract — scripts and vitest projects must stay aligned with these names.
  */
 
-export const NAMED_SUITES = ["unit", "http", "live-cognito", "soak-totp"] as const;
+export const NAMED_SUITES = ["unit", "http", "live-cognito"] as const;
 export type NamedSuite = (typeof NAMED_SUITES)[number];
 
 /** Default `npm test` — no cloud credentials required. */
@@ -118,8 +118,7 @@ export const REQUIRED_NPM_SCRIPTS = {
   test: "default unit+http",
   "test:unit": "unit suite",
   "test:http": "http suite",
-  "test:live:cognito": "serial live Cognito (no soak)",
-  "test:soak:totp": "TOTP soak (not PR-required)",
+  "test:live:cognito": "serial live Cognito (includes TOTP)",
   typecheck: "root TypeScript check",
   preflight: "manifest validate + live Describe preflight",
   "ci:gate": "ordered PR gate",

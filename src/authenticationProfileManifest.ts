@@ -76,15 +76,6 @@ const schemaVersion2Schema = z
   })
   .passthrough();
 
-const legacyFlatSchema = z
-  .object({
-    region: z.string().min(1),
-    userPoolId: z.string().min(1),
-    clientId: z.string().min(1),
-    clientSecret: z.string().min(1),
-  })
-  .passthrough();
-
 export function loadAuthenticationProfileManifest(
   raw: unknown,
 ): AuthenticationProfileManifest {
@@ -95,11 +86,13 @@ export function loadAuthenticationProfileManifest(
   }
 
   const document = raw as Record<string, unknown>;
-  if ("schemaVersion" in document) {
-    return parseSchemaVersion2(document);
+  if (!("schemaVersion" in document)) {
+    throw new ManifestConfigurationFailure(
+      "authentication profile manifest: schemaVersion 2 is required (legacy flat secrets are no longer accepted)",
+    );
   }
 
-  return parseLegacyFallback(document);
+  return parseSchemaVersion2(document);
 }
 
 function parseSchemaVersion2(
@@ -148,29 +141,6 @@ function parseSchemaVersion2(
     region: parsed.data.region,
     userPoolId: parsed.data.userPoolId,
     profiles,
-  };
-}
-
-/** Temporary migration-only path for pre-v2 flat secrets. Remove after cutover. */
-function parseLegacyFallback(
-  document: Record<string, unknown>,
-): AuthenticationProfileManifest {
-  const parsed = legacyFlatSchema.safeParse(document);
-  if (!parsed.success) {
-    throw toConfigurationFailure(parsed.error);
-  }
-
-  return {
-    schemaVersion: 2,
-    region: parsed.data.region,
-    userPoolId: parsed.data.userPoolId,
-    profiles: {
-      [ADMIN_CONFIDENTIAL_PROFILE_ID]: {
-        kind: "confidential",
-        clientId: parsed.data.clientId,
-        clientSecret: parsed.data.clientSecret,
-      },
-    },
   };
 }
 

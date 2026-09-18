@@ -12,13 +12,8 @@ import {
 } from "../../src/ciGate.js";
 
 describe("named suites and CI gate contract", () => {
-  it("names unit, http, live-cognito, and soak-totp suites", () => {
-    expect([...NAMED_SUITES]).toEqual([
-      "unit",
-      "http",
-      "live-cognito",
-      "soak-totp",
-    ]);
+  it("names unit, http, and live-cognito suites", () => {
+    expect([...NAMED_SUITES]).toEqual(["unit", "http", "live-cognito"]);
     expect([...DEFAULT_TEST_SUITES]).toEqual(["unit", "http"]);
   });
 
@@ -89,9 +84,7 @@ describe("named suites and CI gate contract", () => {
     expect(pkg.scripts.test).toMatch(/test:unit/);
     expect(pkg.scripts.test).toMatch(/test:http/);
     expect(pkg.scripts.test).not.toMatch(/live/);
-    expect(pkg.scripts.test).not.toMatch(/soak/);
     expect(pkg.scripts["test:live:cognito"]).toMatch(/live/);
-    expect(pkg.scripts["test:live:cognito"]).not.toMatch(/soak/);
-    expect(pkg.scripts["test:soak:totp"]).toMatch(/soak/);
+    expect(pkg.scripts["test:soak:totp"]).toBeUndefined();
   });
 });
