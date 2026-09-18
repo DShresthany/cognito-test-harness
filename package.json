@@ -7,7 +7,8 @@
     "start": "tsx src/server.ts",
     "test": "vitest run",
     "test:unit": "vitest run tests/unit",
-    "test:integration": "vitest run tests/integration",
+    "test:integration": "vitest run tests/integration --exclude tests/integration/*.soak.test.ts",
+    "test:soak:totp": "vitest run tests/integration/totp.soak.test.ts",
     "test:watch": "vitest",
     "infra:synth": "npm run typecheck --prefix infra && npm run cdk --prefix infra -- synth",
     "infra:deploy": "npm run typecheck --prefix infra && npm run cdk --prefix infra -- deploy --require-approval never",
@@ -35,6 +36,7 @@
     "aws-jwt-verify": "^5.2.1",
     "dotenv": "^17.4.2",
     "hono": "^4.13.5",
+    "otpauth": "^9.5.2",
     "yaml": "^2.9.0",
     "zod": "^4.6.5"
   },
