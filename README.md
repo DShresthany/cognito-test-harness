@@ -41,8 +41,11 @@ The stub (`POST /login`, `GET /confirmed`) is a JSON wrapper over admin auth + a
 | What fails | Interpretation |
 |---|---|
 | `infra:test` / `infra:synth` | CDK template, IAM, or stack wiring regression |
-| `test:unit` | Helper or manager lifecycle contract broken (no AWS involved) |
-| `test:integration` | Live Cognito or stub API contract regression |
+| `test:unit` | Unit contract broken (no AWS) |
+| `test:http` | HTTP authentication stub contract broken (no AWS) |
+| `preflight` | Manifest or live Cognito profile drift |
+| `test:live:cognito` | Live Cognito scenario regression |
+| `test:soak:totp` | Deterministic TOTP soak (not required on PRs yet) |
 | Main `infra:deploy` step | Infra change did not apply (CloudFormation / CDK) |
 
 PR green does **not** prove a new Cognito pool policy is safe — PRs test the **currently deployed** pool. For infra changes, deploy locally first so PR CI sees the new policy; otherwise policy is applied on **main** deploy and re-tested there. See [CI design](#ci-design-one-pool-deploy-on-main-only).
@@ -93,12 +96,16 @@ export AWS_REGION=us-east-1
 npm run env:pull   # writes .cognito/config.json + bootstrap .env — never commit them
 
 npm install
-npm run test:unit         # fast, no AWS
-npm run test:integration  # live Cognito + stub
-npm test                  # complete suite
+npm test                  # unit + HTTP only (no AWS)
+npm run test:unit         # fast unit suite
+npm run test:http         # HTTP stub suite (no AWS)
+npm run preflight         # validate manifest + live Describe (no users)
+npm run test:live:cognito # serial live Cognito scenarios
+npm run test:soak:totp    # TOTP soak (not PR-required yet)
+npm run ci:gate           # full ordered PR gate (needs AWS after preflight)
 ```
 
-Integration tests create and delete their own Cognito users via `CognitoLoginManager.setupUsers` / `cleanup` — no long-lived seed user is required. Optional local server (`npm start`) is not required for tests; Vitest uses in-process `app.request()`.
+Live Cognito tests create and delete their own personas via the fixture manager / login manager — no long-lived seed user is required. Optional local server (`npm start`) is not required for tests; Vitest uses in-process `app.request()`.
 
 ### Growth posture
 
@@ -112,8 +119,8 @@ All automated checks run in **CodeBuild** (not GitHub Actions). Project: `cognit
 
 | Trigger | What runs |
 |---|---|
-| **Pull request** (open/sync/reopen → `main`) | infra Jest → `cdk synth` → `test:unit` → `test:integration` (**no** deploy) |
-| **Push to `main`** | If `infra/` changed → `cdk deploy`, then the same checks |
+| **Pull request** (open/sync/reopen → `main`) | `ci:gate`: typecheck → unit → HTTP → infra → synth → preflight → live Cognito (**no** deploy; TOTP soak excluded) |
+| **Push to `main`** | If `infra/` changed → `cdk deploy`, then the same gate |
 
 Cognito config is **materialized from Secrets Manager** (`cognito-test-harness/cognito`) into `.cognito/config.json` at the start of each build (`COGNITO_CONFIG_PATH`). The CodeBuild service role reads that secret and calls Cognito (no AWS access keys in GitHub).
 
@@ -124,7 +131,7 @@ This is a **solo demo** with a single long-lived Cognito stack (no separate `dev
 | Behavior | Why |
 |---|---|
 | **PRs do not deploy** | `scripts/codebuild-pre-build.sh` deploys only on `PUSH` to `main` when `infra/` changed |
-| **PR `test:integration` hits the currently deployed pool** | Config comes from Secrets Manager for that live stack — not from the PR’s undeployed template |
+| **PR `test:live:cognito` hits the currently deployed pool** | Config comes from Secrets Manager for that live stack — not from the PR’s undeployed template |
 | **Infra policy is applied on main** | After merge, main deploy updates the pool; the same Cognito checks then re-run against the new policy |
 
 Tradeoff: a PR that only changes Cognito pool settings can go **green against today’s pool**, then fail (or change behavior) **after** main deploy. That is accepted here to keep CI simple and avoid shared-stack deploys from every PR.
@@ -145,12 +152,12 @@ PRs never deploy; only main + `infra/` path changes can apply CloudFormation upd
 ## Layout
 
 ```text
-buildspec.yml              CodeBuild install / pre_build / build
-scripts/                   CI deploy-if-infra + env:pull
+buildspec.yml              CodeBuild install / pre_build / ci:gate
+scripts/                   pre_build, ci-gate, preflight, env:pull
 infra/                     CDK app (see infra/README.md for ops)
-src/                       SECRET_HASH, CognitoLoginManager, stub API, JWT verify
+src/                       outcomes, drivers, fixtures, stub API, JWT verify
 testData/users.yaml        personas (key + emailPrefix)
-tests/                     unit + Cognito integration
+tests/unit|http|live|soak  named suites (default npm test = unit+http)
 ```
 
 ## Security

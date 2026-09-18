@@ -1,9 +1,10 @@
 version: 0.2
 
 # All CI on CodeBuild
-# PR webhook: Jest + synth + unit + Cognito integration tests (no deploy)
-# main PUSH: deploy if infra/ changed, then the same checks
+# PR webhook: ordered gate (typecheck → unit → http → infra → synth → preflight → live)
+# main PUSH: deploy if infra/ changed, then the same gate
 # Cognito config (incl. client secret) loaded from Secrets Manager in pre_build
+# TOTP soak is not part of this required gate (see test:soak:totp / ticket 12)
 
 env:
   variables:
@@ -22,15 +23,12 @@ phases:
 
   pre_build:
     commands:
-      - chmod +x scripts/codebuild-pre-build.sh
+      - chmod +x scripts/codebuild-pre-build.sh scripts/ci-gate.sh
       - ./scripts/codebuild-pre-build.sh
 
   build:
     commands:
-      - npm run infra:test
-      - npm run infra:synth
-      - npm run test:unit
-      - npm run test:integration
+      - npm run ci:gate
 
 cache:
   paths:

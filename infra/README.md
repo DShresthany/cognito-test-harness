@@ -100,7 +100,7 @@ Cognito does not rotate an app client secret in place. Replace the client (CDK c
 export AWS_PROFILE=cognito-dev
 npm run infra:deploy
 npm run env:pull
-npm run test:integration
+npm run test:live:cognito
 ```
 
 Also rotate the GitHub PAT in `cognito-test-harness/github-pat` if it was ever pasted into chat or logs.
