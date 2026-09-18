@@ -10,7 +10,6 @@
     "test:unit": "vitest run --project unit",
     "test:http": "vitest run --project http",
     "test:live:cognito": "vitest run --project live-cognito",
-    "test:soak:totp": "vitest run --project soak-totp",
     "test:watch": "vitest",
     "preflight": "tsx scripts/preflight-cognito.ts",
     "ci:gate": "bash scripts/ci-gate.sh",

@@ -5,7 +5,7 @@ import * as ssm from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
 import { HarnessCodeBuild } from "./harness-codebuild";
 
-/** JSON secret: legacy top-level fields plus schema version 2 profiles. */
+/** JSON secret: schema version 2 authentication profile manifest. */
 export const COGNITO_CONFIG_SECRET_NAME = "cognito-test-harness/cognito";
 
 export const ADMIN_CONFIDENTIAL_PROFILE_ID = "admin-confidential";
@@ -113,8 +113,7 @@ export class CognitoHarnessStack extends cdk.Stack {
     // Source of truth for harness + CI (no plaintext client secret in stack outputs).
     const cognitoConfig = new secretsmanager.Secret(this, "CognitoConfig", {
       secretName: COGNITO_CONFIG_SECRET_NAME,
-      description:
-        "Cognito harness config (legacy fields plus schema version 2 profiles)",
+      description: "Cognito harness config (schema version 2 profiles)",
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
     const cfnSecret = cognitoConfig.node.defaultChild as secretsmanager.CfnSecret;
@@ -124,8 +123,6 @@ export class CognitoHarnessStack extends cdk.Stack {
         '{"schemaVersion":2,',
         '"region":"${AWS::Region}",',
         '"userPoolId":"${UserPoolId}",',
-        '"clientId":"${ClientId}",',
-        '"clientSecret":"${ClientSecret}",',
         '"profiles":{',
         `"${ADMIN_CONFIDENTIAL_PROFILE_ID}":{"kind":"confidential","clientId":"\${ClientId}","clientSecret":"\${ClientSecret}"},`,
         `"${USER_POOL_PUBLIC_PROFILE_ID}":{"kind":"public","clientId":"\${PublicClientId}"}`,

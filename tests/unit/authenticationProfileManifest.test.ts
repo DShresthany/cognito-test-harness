@@ -97,26 +97,15 @@ describe("loadAuthenticationProfileManifest", () => {
     ).toThrow(/unsupported schemaVersion/);
   });
 
-  it("maps legacy flat fields into a temporary schema version 2 confidential profile", () => {
-    const manifest = loadAuthenticationProfileManifest({
-      region: "us-east-1",
-      userPoolId: "us-east-1_example",
-      clientId: "legacy-client-id",
-      clientSecret: "legacy-client-secret",
-    });
-
-    expect(manifest).toEqual({
-      schemaVersion: 2,
-      region: "us-east-1",
-      userPoolId: "us-east-1_example",
-      profiles: {
-        "admin-confidential": {
-          kind: "confidential",
-          clientId: "legacy-client-id",
-          clientSecret: "legacy-client-secret",
-        },
-      },
-    });
+  it("rejects legacy flat secrets without schemaVersion 2", () => {
+    expect(() =>
+      loadAuthenticationProfileManifest({
+        region: "us-east-1",
+        userPoolId: "us-east-1_example",
+        clientId: "legacy-client-id",
+        clientSecret: "legacy-client-secret",
+      }),
+    ).toThrow(/schemaVersion 2 is required/);
   });
 
   it("tolerates unrelated top-level metadata on schema version 2", () => {

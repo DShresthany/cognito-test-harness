@@ -1,40 +1,45 @@
 # Cognito test harness
 
-Cognito **test harness** for confidential-client **admin auth**: YAML user lifecycle, `SECRET_HASH`, and JWT verification via a thin stub API. CDK and CodeBuild keep the User Pool and CI reproducible — **supporting infrastructure**, not the product under test.
+Cognito **test harness** for confidential-client **admin auth** and public User Pool flows: fixture personas, outcome-based drivers, `SECRET_HASH`, JWT checks, refresh, temporary password, and deterministic TOTP. CDK and CodeBuild keep the User Pool and CI reproducible — **supporting infrastructure**, not the product under test.
 
-The server holds the app client secret, computes `SECRET_HASH`, and authenticates with `AdminInitiateAuth` (`ADMIN_USER_PASSWORD_AUTH`). This pool requires **Username to be an email**; uniqueness uses a Gmail `+runId` alias per test run.
+First-release acceptance matrix, profiles, CI gate, and safe diagnostics: [`docs/first-release.md`](docs/first-release.md).
+
+The HTTP stub (`POST /login`, `GET /confirmed`) wraps the confidential admin password port + access-token verify for in-process tests. It is **not** how most production apps authenticate end users.
 
 ## What this is / is not
 
 | | |
 |---|---|
-| **Is** | Privileged **test infrastructure**: YAML provision, `AdminInitiateAuth` + `SECRET_HASH`, ephemeral users, stub API proving the manager |
-| **Is not** | A product auth stack (SRP, Hosted UI, cookies, federated IdP, MFA challenges) |
+| **Is** | Privileged **test infrastructure**: fixtures, admin + public drivers, ephemeral users, stub API, live scenario matrix |
+| **Is not** | A product auth stack (Hosted UI, cookies, federated IdP, browser OAuth) |
 
-The stub (`POST /login`, `GET /confirmed`) is a JSON wrapper over admin auth + access-token verify so tests can exercise the helper without a real UI. It is **not** how most production apps authenticate end users.
-
-**Stub login errors:** `app.ts` maps every `login` failure to `401 { error: "invalid credentials" }` by design (no Cognito outage → 5xx mapping yet).
+**Stub login errors:** `app.ts` maps authentication rejections to `401 { error: "invalid credentials" }` (and related stub mappings); operational failures use safe diagnostics.
 
 ## Risks under test
 
 - Wrong client secret / `SECRET_HASH` → Cognito auth fails (confidential-client footgun)
 - Protected route accepts **access** tokens only — **ID** tokens rejected
 - Tampered JWTs rejected by `aws-jwt-verify`
-- Unknown user vs wrong password → same 401 body (existence-hiding at the stub; pool has `preventUserExistenceErrors`)
-- Ephemeral users (`emailPrefix+runId@…`) cleaned up best-effort after the run
-- Passwords never committed; YAML personas carry prefixes only
+- Unknown user vs wrong password → same 401 body at the stub
+- Non-rotating refresh; wrong-client refresh rejection
+- `NEW_PASSWORD_REQUIRED` continue / policy / bad session
+- Deterministic software-token MFA enroll + sign-in (including reused-code rejection)
+- Ephemeral users cleaned up best-effort after the run
+- Passwords/secrets never committed; reports use allowlisted fields only
 
 ## Coverage matrix
 
 | Area | Covered | Not covered (deferred) |
 |---|---|---|
-| YAML provision + SDK login | Yes (`smoke` persona) | Extra personas without distinct scenarios |
-| Stub happy path | `POST /login` → `GET /confirmed` (access token) | Browser UI |
-| Negatives — credentials | Bad password; unknown user vs wrong password → same 401 body | Throttle / retry |
-| Negatives — JWT | Missing bearer; **ID token rejected**; **tampered access token** | Expired token; wrong-pool issuer |
-| Confidential client | **Wrong `SECRET_HASH` → AdminInitiateAuth fails** | — |
-| Challenges / lifecycle | — | Unconfirmed, `FORCE_CHANGE_PASSWORD`, MFA, refresh token |
-| Error taxonomy | All login failures → 401 | Cognito outage → 5xx |
+| YAML / fixture provision | Yes | Extra personas without distinct scenarios |
+| Stub happy path | `POST /login` → `GET /confirmed` | Browser UI |
+| Negatives — credentials | Bad password; existence-hiding | Throttle / retry product UX |
+| Negatives — JWT | Missing bearer; ID rejected; tampered access | Expired token (optional later) |
+| Confidential client | Wrong `SECRET_HASH` | — |
+| Refresh | Non-rotating RF-1…RF-5 | Device tracking / rotation product mode |
+| Temporary password | NP-1…NP-4 | — |
+| TOTP MFA | TP enroll / wrong / reuse on required live | SMS MFA, optional mfa-setup live profile |
+| Error taxonomy | Outcomes + safe diagnostics | Full 5xx product mapping |
 
 ## What a red build means
 
@@ -44,8 +49,7 @@ The stub (`POST /login`, `GET /confirmed`) is a JSON wrapper over admin auth + a
 | `test:unit` | Unit contract broken (no AWS) |
 | `test:http` | HTTP authentication stub contract broken (no AWS) |
 | `preflight` | Manifest or live Cognito profile drift |
-| `test:live:cognito` | Live Cognito scenario regression |
-| `test:soak:totp` | Deterministic TOTP soak (not required on PRs yet) |
+| `test:live:cognito` | Live Cognito scenario regression (password, JWT, refresh, temp password, TOTP) |
 | Main `infra:deploy` step | Infra change did not apply (CloudFormation / CDK) |
 
 PR green does **not** prove a new Cognito pool policy is safe — PRs test the **currently deployed** pool. For infra changes, deploy locally first so PR CI sees the new policy; otherwise policy is applied on **main** deploy and re-tested there. See [CI design](#ci-design-one-pool-deploy-on-main-only).
@@ -102,16 +106,15 @@ npm test                  # unit + HTTP only (no AWS)
 npm run test:unit         # fast unit suite
 npm run test:http         # HTTP stub suite (no AWS)
 npm run preflight         # validate manifest + live Describe (no users)
-npm run test:live:cognito # serial live Cognito scenarios
-npm run test:soak:totp    # TOTP soak (not PR-required yet)
+npm run test:live:cognito # serial live matrix (includes TOTP)
 npm run ci:gate           # full ordered PR gate (needs AWS after preflight)
 ```
 
-Live Cognito tests create and delete their own personas via the fixture manager — no long-lived seed user is required. Optional local server (`npm start`) is not required for tests; Vitest uses in-process `app.request()`.
+See [`docs/first-release.md`](docs/first-release.md) for profiles, scenario inventory, safe diagnostics, and cleanup.
 
 ### Growth posture
 
-The harness is shaped for additional personas, focused Cognito risk scenarios, and concurrent runs. Each manager uses a full UUID in its email aliases and tracks user ownership before password assignment so partial setup failures remain cleanable. Confidential-client negatives keep their Cognito command wiring in a focused probe module instead of rebuilding it in each test.
+The harness is shaped for additional personas, focused Cognito risk scenarios, and concurrent runs. Each fixture run uses a full UUID in its email aliases and tracks user ownership before password assignment so partial setup failures remain cleanable. Confidential-client negatives keep their Cognito command wiring in a focused probe module instead of rebuilding it in each test.
 
 Personas should be added only with distinct scenario assertions. A generic identity-provider abstraction is intentionally deferred until a second provider or offline adapter creates a real seam.
 
@@ -121,7 +124,7 @@ All automated checks run in **CodeBuild** (not GitHub Actions). Project: `cognit
 
 | Trigger | What runs |
 |---|---|
-| **Pull request** (open/sync/reopen → `main`) | `ci:gate`: typecheck → unit → HTTP → infra → synth → preflight → live Cognito (**no** deploy; TOTP soak excluded) |
+| **Pull request** (open/sync/reopen → `main`) | `ci:gate`: typecheck → unit → HTTP → infra → synth → preflight → live Cognito including TOTP (**no** deploy) |
 | **Push to `main`** | If `infra/` changed → `cdk deploy`, then the same gate |
 
 Cognito config is **materialized from Secrets Manager** (`cognito-test-harness/cognito`) into `.cognito/config.json` at the start of each build (`COGNITO_CONFIG_PATH`). The CodeBuild service role reads that secret and calls Cognito (no AWS access keys in GitHub).
@@ -159,7 +162,7 @@ scripts/                   pre_build, ci-gate, preflight, env:pull
 infra/                     CDK app (see infra/README.md for ops)
 src/                       outcomes, drivers, fixtures, stub API, JWT verify
 testData/users.yaml        personas (key + emailPrefix)
-tests/unit|http|live|soak  named suites (default npm test = unit+http)
+tests/unit|http|live       named suites (default npm test = unit+http; live includes TOTP)
 ```
 
 ## Security

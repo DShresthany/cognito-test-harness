@@ -56,7 +56,7 @@ afterAll(async () => {
   await fixtures?.cleanup();
 }, 90_000);
 
-describe("TP deterministic TOTP soak (public profile)", () => {
+describe("TP deterministic TOTP scenarios (public profile)", () => {
   it("TP-1: enroll + prefer MFA, then software-token-mfa continuation authenticates", async () => {
     const persona = await fixtures.provision(
       { key: "tp1", emailPrefix: "harness-tp1" },

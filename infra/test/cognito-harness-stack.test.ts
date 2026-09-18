@@ -246,7 +246,7 @@ test("sets first-release token and challenge durations on both clients", () => {
   }
 });
 
-test("writes schema version 2 profiles beside legacy secret fields", () => {
+test("writes schema version 2 profiles without legacy top-level client fields", () => {
   const app = new cdk.App();
   const stack = new CognitoHarnessStack(app, "TestStackManifest", {
     env: { account: "111111111111", region: "us-east-1" },
@@ -267,9 +267,10 @@ test("writes schema version 2 profiles beside legacy secret fields", () => {
   expect(document).toContain('"kind":"confidential"');
   expect(document).toContain('"kind":"public"');
   expect(document).toContain('"userPoolId"');
-  expect(document).toContain('"clientId"');
-  expect(document).toContain('"clientSecret"');
   expect(document).toContain('"region"');
+  expect(document).not.toMatch(
+    /"userPoolId":"\$\{UserPoolId\}","clientId":"\$\{ClientId\}"/,
+  );
   expect(document).toContain(
     `"${ADMIN_CONFIDENTIAL_PROFILE_ID}":{"kind":"confidential","clientId":"\${ClientId}","clientSecret":"\${ClientSecret}"}`,
   );
