@@ -238,4 +238,161 @@ describe("CognitoUserPoolAuthDriver", () => {
       rejection: { reason: "invalid-challenge-session" },
     });
   });
+
+  it("associates a software token and returns the Cognito secret without storing it", async () => {
+    const send = vi.fn().mockResolvedValue({ SecretCode: "JBSWY3DPEHPK3PXP" });
+    const driver = new CognitoUserPoolAuthDriver({ send }, profile);
+
+    await expect(
+      driver.associateSoftwareToken("access-token-value"),
+    ).resolves.toBe("JBSWY3DPEHPK3PXP");
+
+    const command = send.mock.calls[0]?.[0] as {
+      input?: { AccessToken?: string };
+    };
+    expect(command.input?.AccessToken).toBe("access-token-value");
+    expect(driver).not.toHaveProperty("secretCode");
+    expect(driver).not.toHaveProperty("accessToken");
+  });
+
+  it("verifies a software token SUCCESS as verified without treating it as authenticated", async () => {
+    const send = vi.fn().mockResolvedValue({ Status: "SUCCESS" });
+    const driver = new CognitoUserPoolAuthDriver({ send }, profile);
+
+    await expect(
+      driver.verifySoftwareToken({
+        accessToken: "access-token-value",
+        code: "123456",
+      }),
+    ).resolves.toEqual({ kind: "verified" });
+
+    const command = send.mock.calls[0]?.[0] as {
+      input?: { AccessToken?: string; UserCode?: string };
+    };
+    expect(command.input?.AccessToken).toBe("access-token-value");
+    expect(command.input?.UserCode).toBe("123456");
+  });
+
+  it("rejects a wrong enrollment code as invalid-code without leaking the code", async () => {
+    const send = vi.fn().mockRejectedValue(
+      Object.assign(new Error("Code mismatch"), {
+        name: "CodeMismatchException",
+      }),
+    );
+    const driver = new CognitoUserPoolAuthDriver({ send }, profile);
+
+    const outcome = await driver.verifySoftwareToken({
+      accessToken: "access-token-value",
+      code: "000000",
+    });
+    expect(outcome).toMatchObject({
+      kind: "rejected",
+      rejection: { reason: "invalid-code" },
+    });
+    expect(JSON.stringify(outcome)).not.toContain("000000");
+    expect(JSON.stringify(outcome)).not.toContain("access-token-value");
+  });
+
+  it("sets software-token MFA preferred via access token only", async () => {
+    const send = vi.fn().mockResolvedValue({});
+    const driver = new CognitoUserPoolAuthDriver({ send }, profile);
+
+    await expect(
+      driver.setSoftwareTokenMfaPreferred("access-token-value"),
+    ).resolves.toBeUndefined();
+
+    const command = send.mock.calls[0]?.[0] as {
+      input?: {
+        AccessToken?: string;
+        SoftwareTokenMfaSettings?: { Enabled?: boolean; PreferredMfa?: boolean };
+      };
+    };
+    expect(command.input?.AccessToken).toBe("access-token-value");
+    expect(command.input?.SoftwareTokenMfaSettings).toEqual({
+      Enabled: true,
+      PreferredMfa: true,
+    });
+  });
+
+  it("continues SOFTWARE_TOKEN_MFA and authenticates with a valid code", async () => {
+    const send = vi.fn().mockResolvedValue({
+      AuthenticationResult: {
+        AccessToken: "access-token",
+        IdToken: "id-token",
+        RefreshToken: "refresh-token",
+      },
+    });
+    const driver = new CognitoUserPoolAuthDriver({ send }, profile);
+
+    await expect(
+      driver.respondToSoftwareTokenMfa({
+        session: "opaque-session",
+        username: "canonical-user",
+        code: "654321",
+      }),
+    ).resolves.toEqual({
+      kind: "authenticated",
+      tokens: {
+        accessToken: "access-token",
+        idToken: "id-token",
+        refreshToken: "refresh-token",
+      },
+    });
+
+    const command = send.mock.calls[0]?.[0] as {
+      input?: {
+        ChallengeName?: string;
+        ClientId?: string;
+        Session?: string;
+        ChallengeResponses?: Record<string, string>;
+      };
+    };
+    expect(command.input?.ChallengeName).toBe("SOFTWARE_TOKEN_MFA");
+    expect(command.input?.ClientId).toBe("public-client-id");
+    expect(command.input?.Session).toBe("opaque-session");
+    expect(command.input?.ChallengeResponses).toEqual({
+      USERNAME: "canonical-user",
+      SOFTWARE_TOKEN_MFA_CODE: "654321",
+    });
+  });
+
+  it("rejects a wrong sign-in TOTP as invalid-code", async () => {
+    const send = vi.fn().mockRejectedValue(
+      Object.assign(new Error("Code mismatch"), {
+        name: "CodeMismatchException",
+      }),
+    );
+    const driver = new CognitoUserPoolAuthDriver({ send }, profile);
+
+    await expect(
+      driver.respondToSoftwareTokenMfa({
+        session: "opaque-session",
+        username: "canonical-user",
+        code: "000000",
+      }),
+    ).resolves.toMatchObject({
+      kind: "rejected",
+      rejection: { reason: "invalid-code" },
+    });
+  });
+
+  it("rejects a reused sign-in TOTP as expired-code", async () => {
+    const send = vi.fn().mockRejectedValue(
+      Object.assign(new Error("Expired code"), {
+        name: "ExpiredCodeException",
+      }),
+    );
+    const driver = new CognitoUserPoolAuthDriver({ send }, profile);
+
+    await expect(
+      driver.respondToSoftwareTokenMfa({
+        session: "opaque-session",
+        username: "canonical-user",
+        code: "123456",
+      }),
+    ).resolves.toMatchObject({
+      kind: "rejected",
+      rejection: { reason: "expired-code" },
+    });
+  });
 });

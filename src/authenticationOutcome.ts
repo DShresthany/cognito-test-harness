@@ -4,6 +4,7 @@ export type AuthenticationOperation =
   | "respond-to-auth-challenge"
   | "verify-software-token"
   | "associate-software-token"
+  | "set-user-mfa-preference"
   | "refresh-token"
   | "verify-access-token"
   | "verify-id-token";
@@ -641,6 +642,7 @@ function notAuthorizedReason(
       return "invalid-challenge-session";
     case "associate-software-token":
     case "verify-software-token":
+    case "set-user-mfa-preference":
     case "verify-access-token":
     case "verify-id-token":
       return "invalid-access-token";
