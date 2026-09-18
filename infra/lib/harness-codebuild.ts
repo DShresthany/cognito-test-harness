@@ -115,7 +115,7 @@ export class HarnessCodeBuild extends Construct {
       }),
     );
 
-    // CognitoLoginManager APIs only (create/set password/auth/delete) — pool-scoped.
+    // Fixture manager + confidential admin driver (create/set password/auth/delete) — pool-scoped.
     role.addToPolicy(
       new iam.PolicyStatement({
         sid: "CognitoHarnessAdmin",

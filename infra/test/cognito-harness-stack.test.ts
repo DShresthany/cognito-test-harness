@@ -83,7 +83,7 @@ test("User Pool, confidential client, CodeBuild, and failure email alerts", () =
     ]),
   );
 
-  // CognitoHarnessAdmin allowlist must match CognitoLoginManager (no unused Admin APIs).
+  // CognitoHarnessAdmin allowlist must match fixture + admin-driver Admin APIs (no unused Admin APIs).
   const cognitoAdmin = Object.values(template.findResources("AWS::IAM::Policy"))
     .flatMap(
       (p) =>

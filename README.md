@@ -67,15 +67,17 @@ flowchart LR
   end
 
   subgraph Tests["Vitest harness"]
-    LM[CognitoLoginManager]
+    FX[Fixture manager]
+    DR[Admin / public drivers]
     API[Stub API<br/>login / confirmed]
   end
 
   PR -->|webhook| CB
   CB -->|GetSecretValue| SM
-  SM -.->|pool / client / secret| LM
-  LM -->|Admin auth APIs| UP
-  LM --> API
+  SM -.->|pool / client / secret| FX
+  DR -->|Cognito auth APIs| UP
+  FX --> DR
+  DR --> API
   API -->|JWT verify| UP
   CB -->|FAILED / FAULT / ...| EB --> SNS
 ```
@@ -105,7 +107,7 @@ npm run test:soak:totp    # TOTP soak (not PR-required yet)
 npm run ci:gate           # full ordered PR gate (needs AWS after preflight)
 ```
 
-Live Cognito tests create and delete their own personas via the fixture manager / login manager — no long-lived seed user is required. Optional local server (`npm start`) is not required for tests; Vitest uses in-process `app.request()`.
+Live Cognito tests create and delete their own personas via the fixture manager — no long-lived seed user is required. Optional local server (`npm start`) is not required for tests; Vitest uses in-process `app.request()`.
 
 ### Growth posture
 

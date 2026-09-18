@@ -1,91 +1,73 @@
 import { config } from "dotenv";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createApp } from "../../src/app.js";
-import {
-  CognitoAdminAuthDriver,
-  type ConfidentialAdminAuthProfile,
-} from "../../src/cognitoAdminAuthDriver.js";
-import { createCognitoClient } from "../../src/cognitoAuth.js";
+import { requireAuthenticated } from "../../src/authenticationOutcome.js";
 import { attemptLoginWithInvalidSecretHash } from "../../src/cognitoConfidentialClientProbe.js";
-import {
-  createAwsCapabilityDescriber,
-  resolveCognitoConfigPath,
-} from "../../src/cognitoConfigPaths.js";
-import { CognitoLoginManager } from "../../src/cognitoLoginManager.js";
-import { createCognitoTestRuntime } from "../../src/cognitoTestRuntime.js";
-import { createAccessTokenVerifierPort } from "../../src/jwtVerifier.js";
+import { createHarnessComposition } from "../../src/createHarnessComposition.js";
+import type { ProvisionedPersona } from "../../src/cognitoUserFixtureManager.js";
 import { loadTestUsers } from "../../src/loadTestUsers.js";
 
 config();
 
 const users = loadTestUsers();
 
-let manager: CognitoLoginManager;
-let app: ReturnType<typeof createApp>;
-let client: ReturnType<typeof createCognitoClient>;
-let profile: ConfidentialAdminAuthProfile;
+type ProvisionedSession = {
+  persona: ProvisionedPersona;
+  accessToken: string;
+  idToken: string;
+};
+
+let composition: Awaited<ReturnType<typeof createHarnessComposition>>;
+const sessions = new Map<string, ProvisionedSession>();
 
 beforeAll(async () => {
-  client = createCognitoClient();
-  const runtime = await createCognitoTestRuntime({
-    configPath: resolveCognitoConfigPath(),
-    ...createAwsCapabilityDescriber(client),
-  });
-  const confidential = runtime.requireConfidentialProfile("admin-confidential");
-  profile = {
-    id: confidential.id,
-    userPoolId: confidential.userPoolId,
-    clientId: confidential.clientId,
-    clientSecret: confidential.clientSecret,
-  };
-  manager = new CognitoLoginManager(
-    client,
-    profile.userPoolId,
-    profile.clientId,
-    profile.clientSecret,
-  );
-  const driver = new CognitoAdminAuthDriver(client, profile);
-  app = createApp({
-    authenticatePassword: {
-      authenticate: (username, password) =>
-        driver.authenticatePassword(username, password),
-    },
-    verifyAccessToken: createAccessTokenVerifierPort({
-      userPoolId: profile.userPoolId,
-      clientId: profile.clientId,
-    }),
-    reportDiagnostic: { report() {} },
-  });
-  await manager.setupUsers(users);
+  composition = await createHarnessComposition();
+  for (const user of users) {
+    const persona = await composition.fixtures.provision(user, {
+      kind: "permanent-password",
+    });
+    const tokens = requireAuthenticated(
+      await composition.driver.authenticatePassword(
+        persona.username,
+        persona.password,
+      ),
+    );
+    sessions.set(user.key, {
+      persona,
+      accessToken: tokens.accessToken,
+      idToken: tokens.idToken,
+    });
+  }
 }, 90_000);
 
 afterAll(async () => {
-  await manager?.cleanup();
+  await composition?.fixtures.cleanup();
 }, 90_000);
 
 describe("YAML provision + login", () => {
   it.each(users.map((user) => [user.key] as const))(
     "logs in YAML user %s",
     (key) => {
-      const auth = manager.getAuthResult(key);
-      expect(auth.email).toContain(manager.runId);
-      expect(auth.username).toBeTruthy();
-      expect(auth.accessToken).toBeTruthy();
-      expect(auth.idToken).toBeTruthy();
+      const session = sessions.get(key);
+      expect(session).toBeDefined();
+      expect(session!.persona.email).toContain(composition.fixtures.runId);
+      expect(session!.persona.username).toBeTruthy();
+      expect(session!.accessToken).toBeTruthy();
+      expect(session!.idToken).toBeTruthy();
     },
   );
 });
 
 describe("stub API", () => {
   it("POST /login then GET /confirmed with access token", async () => {
-    const creds = manager.getCredentials("smoke");
+    const session = sessions.get("smoke");
+    expect(session).toBeDefined();
 
-    const login = await app.request("/login", {
+    const login = await composition.app.request("/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        username: creds.username,
-        password: creds.password,
+        username: session!.persona.username,
+        password: session!.persona.password,
       }),
     });
     expect(login.status).toBe(200);
@@ -95,7 +77,7 @@ describe("stub API", () => {
     };
     expect(tokens.accessToken).toBeTruthy();
 
-    const confirmed = await app.request("/confirmed", {
+    const confirmed = await composition.app.request("/confirmed", {
       headers: { Authorization: `Bearer ${tokens.accessToken}` },
     });
     expect(confirmed.status).toBe(200);
@@ -111,20 +93,22 @@ describe("stub API", () => {
   });
 
   it("rejects GET /confirmed with an ID token (access-only verifier)", async () => {
-    const auth = manager.getAuthResult("smoke");
-    const res = await app.request("/confirmed", {
-      headers: { Authorization: `Bearer ${auth.idToken}` },
+    const session = sessions.get("smoke");
+    expect(session).toBeDefined();
+    const res = await composition.app.request("/confirmed", {
+      headers: { Authorization: `Bearer ${session!.idToken}` },
     });
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ error: "invalid token" });
   });
 
   it("rejects GET /confirmed with a tampered access token", async () => {
-    const auth = manager.getAuthResult("smoke");
-    const tampered = tamperJwt(auth.accessToken);
-    expect(tampered).not.toBe(auth.accessToken);
+    const session = sessions.get("smoke");
+    expect(session).toBeDefined();
+    const tampered = tamperJwt(session!.accessToken);
+    expect(tampered).not.toBe(session!.accessToken);
 
-    const res = await app.request("/confirmed", {
+    const res = await composition.app.request("/confirmed", {
       headers: { Authorization: `Bearer ${tampered}` },
     });
     expect(res.status).toBe(401);
@@ -132,12 +116,13 @@ describe("stub API", () => {
   });
 
   it("rejects a bad password", async () => {
-    const creds = manager.getCredentials("smoke");
-    const res = await app.request("/login", {
+    const session = sessions.get("smoke");
+    expect(session).toBeDefined();
+    const res = await composition.app.request("/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        username: creds.username,
+        username: session!.persona.username,
         password: "WrongPassword123!",
       }),
     });
@@ -146,20 +131,21 @@ describe("stub API", () => {
   });
 
   it("maps unknown user and wrong password to the same 401 body", async () => {
-    const creds = manager.getCredentials("smoke");
-    const unknown = await app.request("/login", {
+    const session = sessions.get("smoke");
+    expect(session).toBeDefined();
+    const unknown = await composition.app.request("/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        username: `nobody+${manager.runId}@gmail.com`,
+        username: `nobody+${composition.fixtures.runId}@gmail.com`,
         password: "WhateverPass123!",
       }),
     });
-    const wrongPassword = await app.request("/login", {
+    const wrongPassword = await composition.app.request("/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        username: creds.username,
+        username: session!.persona.username,
         password: "WrongPassword123!",
       }),
     });
@@ -171,7 +157,7 @@ describe("stub API", () => {
   });
 
   it("rejects GET /confirmed without a token", async () => {
-    const res = await app.request("/confirmed");
+    const res = await composition.app.request("/confirmed");
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ error: "missing bearer token" });
   });
@@ -179,12 +165,16 @@ describe("stub API", () => {
 
 describe("confidential client SECRET_HASH", () => {
   it("rejects AdminInitiateAuth with a wrong SECRET_HASH", async () => {
-    const creds = manager.getCredentials("smoke");
+    const session = sessions.get("smoke");
+    expect(session).toBeDefined();
 
     const outcome = await attemptLoginWithInvalidSecretHash(
-      client,
-      profile,
-      creds,
+      composition.client,
+      composition.profile,
+      {
+        username: session!.persona.username,
+        password: session!.persona.password,
+      },
     );
     expect(outcome).toMatchObject({
       kind: "rejected",
