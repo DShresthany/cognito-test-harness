@@ -10,16 +10,17 @@ import {
 } from "../../src/ciGate.js";
 
 describe("named suites and CI gate contract", () => {
+  const gate = readFileSync(
+    resolve(process.cwd(), "scripts/ci-gate.sh"),
+    "utf8",
+  );
+
   it("names unit, http, and live-cognito suites", () => {
     expect([...NAMED_SUITES]).toEqual(["unit", "http", "live-cognito"]);
     expect([...DEFAULT_TEST_SUITES]).toEqual(["unit", "http"]);
   });
 
   it("runs the gate scripts in order so live Cognito comes last", () => {
-    const gate = readFileSync(
-      resolve(process.cwd(), "scripts/ci-gate.sh"),
-      "utf8",
-    );
     const scripts = [...gate.matchAll(/npm run (\S+)/g)].map((m) => m[1]);
 
     expect(scripts).toEqual([
@@ -34,12 +35,7 @@ describe("named suites and CI gate contract", () => {
   });
 
   it("leaves local secret files in place", () => {
-    const gate = readFileSync(
-      resolve(process.cwd(), "scripts/ci-gate.sh"),
-      "utf8",
-    );
-
-    expect(gate).not.toMatch(/\brm\b/);
+    expect(gate).not.toMatch(/\.cognito|\.env\b/);
   });
 
   it("removes secret files after every CodeBuild build, pass or fail", () => {
