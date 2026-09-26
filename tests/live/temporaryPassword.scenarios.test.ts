@@ -1,3 +1,4 @@
+import type { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
 import { config } from "dotenv";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createCognitoClient } from "../../src/cognitoAuth.js";
@@ -14,7 +15,10 @@ import {
   CognitoUserPoolAuthDriver,
   type PublicUserPoolAuthProfile,
 } from "../../src/cognitoUserPoolAuthDriver.js";
-import { createProfileTokenVerifiers } from "../../src/jwtVerifier.js";
+import {
+  createProfileTokenVerifiers,
+  type ProfileTokenVerifiers,
+} from "../../src/jwtVerifier.js";
 import { randomPassword } from "../../src/randomPassword.js";
 import {
   runInvalidChallengeSessionScenario,
@@ -25,11 +29,11 @@ import {
 
 config();
 
-let client: ReturnType<typeof createCognitoClient>;
+let client: CognitoIdentityProviderClient;
 let publicProfile: PublicUserPoolAuthProfile;
 let publicDriver: CognitoUserPoolAuthDriver;
 let fixtures: CognitoUserFixtureManager;
-let publicVerifiers: ReturnType<typeof createProfileTokenVerifiers>;
+let publicVerifiers: ProfileTokenVerifiers;
 
 beforeAll(async () => {
   client = createCognitoClient();
