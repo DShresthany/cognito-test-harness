@@ -23,12 +23,15 @@ phases:
 
   pre_build:
     commands:
-      - chmod +x scripts/codebuild-pre-build.sh scripts/ci-gate.sh
+      - chmod +x scripts/codebuild-pre-build.sh
       - ./scripts/codebuild-pre-build.sh
 
   build:
     commands:
       - npm run ci:gate
+    finally:
+      - rm -f .cognito/config.json .env
+      - rmdir .cognito 2>/dev/null || true
 
 cache:
   paths:

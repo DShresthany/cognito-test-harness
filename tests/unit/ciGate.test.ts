@@ -1,58 +1,51 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { parse } from "yaml";
 import {
-  CI_GATE_PHASES,
   DEFAULT_TEST_SUITES,
   NAMED_SUITES,
-  PHASES_BEFORE_LIVE,
   REQUIRED_NPM_SCRIPTS,
   assertReportKeysAllowlisted,
-  classifyFailedPhase,
 } from "../../src/ciGate.js";
 
 describe("named suites and CI gate contract", () => {
+  const gate = readFileSync(
+    resolve(process.cwd(), "scripts/ci-gate.sh"),
+    "utf8",
+  );
+
   it("names unit, http, and live-cognito suites", () => {
     expect([...NAMED_SUITES]).toEqual(["unit", "http", "live-cognito"]);
     expect([...DEFAULT_TEST_SUITES]).toEqual(["unit", "http"]);
   });
 
-  it("orders the PR gate so live Cognito cannot run before static/infra/preflight", () => {
-    expect([...CI_GATE_PHASES]).toEqual([
+  it("runs the gate scripts in order so live Cognito comes last", () => {
+    const scripts = [...gate.matchAll(/npm run (\S+)/g)].map((m) => m[1]);
+
+    expect(scripts).toEqual([
       "typecheck",
-      "unit",
-      "http",
-      "infra-typecheck-and-assertions",
-      "synth",
-      "validate-manifest-and-preflight",
-      "live-cognito",
-      "cleanup-secret-files",
+      "test:unit",
+      "test:http",
+      "infra:test",
+      "infra:synth",
+      "preflight",
+      "test:live:cognito",
     ]);
-    expect(CI_GATE_PHASES.indexOf("live-cognito")).toBeGreaterThan(
-      CI_GATE_PHASES.indexOf("validate-manifest-and-preflight"),
-    );
-    expect([...PHASES_BEFORE_LIVE]).not.toContain("live-cognito");
-    expect(PHASES_BEFORE_LIVE).toEqual(
-      CI_GATE_PHASES.slice(0, CI_GATE_PHASES.indexOf("live-cognito")),
-    );
   });
 
-  it("classifies failed phases without labeling them flaky", () => {
-    expect(classifyFailedPhase("typecheck")).toBe("static");
-    expect(classifyFailedPhase("unit")).toBe("static");
-    expect(classifyFailedPhase("http")).toBe("static");
-    expect(classifyFailedPhase("infra-typecheck-and-assertions")).toBe(
-      "infrastructure",
-    );
-    expect(classifyFailedPhase("synth")).toBe("infrastructure");
-    expect(classifyFailedPhase("validate-manifest-and-preflight")).toBe(
-      "profile-drift",
-    );
-    expect(classifyFailedPhase("live-cognito")).toBe("semantic-scenario");
-    expect(classifyFailedPhase("cleanup-secret-files")).toBe("cleanup");
+  it("leaves local secret files in place", () => {
+    expect(gate).not.toMatch(/\.cognito|\.env\b/);
+  });
 
-    const categories = CI_GATE_PHASES.map(classifyFailedPhase);
-    expect(categories).not.toContain("flaky");
+  it("removes secret files after every CodeBuild build, pass or fail", () => {
+    const buildspec = parse(
+      readFileSync(resolve(process.cwd(), "buildspec.yml"), "utf8"),
+    ) as { phases: { build: { finally?: string[] } } };
+    const cleanup = (buildspec.phases.build.finally ?? []).join("\n");
+
+    expect(cleanup).toMatch(/rm -f .*\.cognito\/config\.json/);
+    expect(cleanup).toMatch(/rm -f .*\.env\b/);
   });
 
   it("rejects report objects with non-allowlisted keys", () => {
