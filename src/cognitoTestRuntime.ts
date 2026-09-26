@@ -176,29 +176,50 @@ async function assertPoolContract(
     throw drift("userPool", "missing UserPool payload");
   }
 
-  if (!pool.UsernameAttributes?.includes("email")) {
+  const hasEmailUsername =
+    pool.UsernameAttributes?.includes("email") === true;
+  if (
+    hasEmailUsername !==
+    EXPECTED_POOL_CONTRACT.usernameAttributesIncludeEmail
+  ) {
     throw drift("userPool.UsernameAttributes", "expected email");
   }
-  if (!pool.AutoVerifiedAttributes?.includes("email")) {
+
+  const hasAutoVerifiedEmail =
+    pool.AutoVerifiedAttributes?.includes("email") === true;
+  if (
+    hasAutoVerifiedEmail !==
+    EXPECTED_POOL_CONTRACT.autoVerifiedAttributesIncludeEmail
+  ) {
     throw drift("userPool.AutoVerifiedAttributes", "expected email");
   }
-  if (pool.AdminCreateUserConfig?.AllowAdminCreateUserOnly !== true) {
+
+  const adminCreateUserOnly =
+    pool.AdminCreateUserConfig?.AllowAdminCreateUserOnly === true;
+  if (adminCreateUserOnly !== EXPECTED_POOL_CONTRACT.adminCreateUserOnly) {
     throw drift(
       "userPool.AdminCreateUserConfig.AllowAdminCreateUserOnly",
       "expected true",
     );
   }
+
   const recoveryNames =
     pool.AccountRecoverySetting?.RecoveryMechanisms?.map(
       (mechanism) => mechanism.Name,
     ) ?? [];
-  if (!recoveryNames.includes("verified_email")) {
+  const hasVerifiedEmailRecovery = recoveryNames.includes("verified_email");
+  if (
+    hasVerifiedEmailRecovery !==
+    EXPECTED_POOL_CONTRACT.accountRecoveryIncludesVerifiedEmail
+  ) {
     throw drift(
       "userPool.AccountRecoverySetting.RecoveryMechanisms",
       "expected verified_email",
     );
   }
+
   // Essentials-or-higher: reject only known below-minimum tiers; tolerate PLUS and future higher tiers.
+  // EXPECTED_POOL_CONTRACT.minimumFeatureTier documents accepted tiers; unknown higher tiers stay allowed.
   if (pool.Tier === "LITE") {
     throw drift("userPool.Tier", "feature tier below minimum");
   }
@@ -212,7 +233,11 @@ async function assertMfaContract(
   if (described.MfaConfiguration !== EXPECTED_POOL_CONTRACT.mfaConfiguration) {
     throw drift("userPool.MfaConfiguration", "expected OPTIONAL");
   }
-  if (described.SoftwareTokenMfaConfiguration?.Enabled !== true) {
+  const softwareTokenMfaEnabled =
+    described.SoftwareTokenMfaConfiguration?.Enabled === true;
+  if (
+    softwareTokenMfaEnabled !== EXPECTED_POOL_CONTRACT.softwareTokenMfaEnabled
+  ) {
     throw drift(
       "userPool.SoftwareTokenMfaConfiguration.Enabled",
       "expected true",

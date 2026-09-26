@@ -2,7 +2,10 @@ import { config } from "dotenv";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { requireAuthenticated } from "../../src/authenticationOutcome.js";
 import { attemptLoginWithInvalidSecretHash } from "../../src/cognitoConfidentialClientProbe.js";
-import { createHarnessComposition } from "../../src/createHarnessComposition.js";
+import {
+  createHarnessComposition,
+  type HarnessComposition,
+} from "../../src/createHarnessComposition.js";
 import type { ProvisionedPersona } from "../../src/cognitoUserFixtureManager.js";
 import { loadTestUsers } from "../../src/loadTestUsers.js";
 
@@ -16,7 +19,7 @@ type ProvisionedSession = {
   idToken: string;
 };
 
-let composition: Awaited<ReturnType<typeof createHarnessComposition>>;
+let composition: HarnessComposition;
 const sessions = new Map<string, ProvisionedSession>();
 
 beforeAll(async () => {
