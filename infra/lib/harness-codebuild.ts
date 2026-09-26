@@ -30,8 +30,8 @@ export interface HarnessCodeBuildProps {
  * Requires a GitHub PAT in Secrets Manager: cognito-test-harness/github-pat
  * (repo + admin:repo_hook) so CodeBuild can clone the public repo and create webhooks.
  *
- * Service role is least-privilege (no PowerUser): pool-scoped Cognito Admin,
- * DescribeStacks for outputs, Cognito config secret read, and sts:AssumeRole into
+ * Service role is least-privilege (no PowerUser): pool-scoped Cognito Admin +
+ * Describe for preflight, Cognito config secret read, and sts:AssumeRole into
  * default CDK bootstrap roles.
  */
 export class HarnessCodeBuild extends Construct {
@@ -71,24 +71,12 @@ export class HarnessCodeBuild extends Construct {
     const cdkBootstrapRole = (name: string) =>
       `arn:aws:iam::${account}:role/cdk-${bootstrapQualifier}-${name}-${account}-${region}`;
 
-    // Identity / stack outputs (pre_build.sh) — not via assumed CDK roles.
+    // Identity for pre_build.sh account echo — not via assumed CDK roles.
     role.addToPolicy(
       new iam.PolicyStatement({
         sid: "StsCallerIdentity",
         actions: ["sts:GetCallerIdentity"],
         resources: ["*"],
-      }),
-    );
-    role.addToPolicy(
-      new iam.PolicyStatement({
-        sid: "ReadHarnessStackOutputs",
-        actions: [
-          "cloudformation:DescribeStacks",
-          "cloudformation:ListStackResources",
-        ],
-        resources: [
-          `arn:aws:cloudformation:${region}:${account}:stack/CognitoHarnessStack/*`,
-        ],
       }),
     );
 

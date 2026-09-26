@@ -77,11 +77,11 @@ test("User Pool, confidential client, CodeBuild, and failure email alerts", () =
       "CdkBootstrapAssumeRoles",
       "CognitoHarnessAdmin",
       "CognitoDescribeProfiles",
-      "ReadHarnessStackOutputs",
       "CdkBootstrapVersion",
       "StsCallerIdentity",
     ]),
   );
+  expect(statements).not.toContain("ReadHarnessStackOutputs");
 
   // CognitoHarnessAdmin allowlist must match fixture + admin-driver Admin APIs (no unused Admin APIs).
   const cognitoAdmin = Object.values(template.findResources("AWS::IAM::Policy"))
