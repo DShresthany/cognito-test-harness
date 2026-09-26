@@ -36,9 +36,8 @@ CodeBuild project `cognito-test-harness-ci` runs `scripts/codebuild-pre-build.sh
 5. synth  
 6. preflight  
 7. live Cognito (serial, no Vitest retries)  
-8. remove secret files  
 
-Failures are classified (`static`, `infrastructure`, `profile-drift`, `semantic-scenario`, …) and stay red — never relabeled flaky. Static/infra/preflight failure does not create personas.
+The gate stops at the first failing step and the build stays red — never relabeled flaky. The step banner (`=== preflight ===`, etc.) in the log shows which step failed. Static/infra/preflight failure does not create personas. CodeBuild then removes the secret files in the `build` phase's `finally` block, whether the gate passed or failed.
 
 ## Scenario inventory (acceptance matrix)
 
@@ -60,7 +59,7 @@ Reports and stubs may emit only allowlisted fields (see `REPORT_ALLOWLIST_FIELDS
 
 - Fixture manager owns persona deletion; drivers never delete users.  
 - Live suites call fixture `cleanup` in `afterAll` even when assertions fail.  
-- `ci:gate` always removes materialized secret files on exit once config exists or live has started.  
+- CodeBuild always removes materialized secret files after the gate (`buildspec.yml` `finally`); local `ci:gate` runs keep `.env` and `.cognito/`.  
 - Unexplained semantic TOTP failure or cleanup leak keeps the build red (no auto-retry).
 
 ## TOTP graduation note
