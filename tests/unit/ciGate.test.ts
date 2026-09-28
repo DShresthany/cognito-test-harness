@@ -36,17 +36,19 @@ describe("CI gate contract", () => {
     expect(cleanup).toMatch(/rm -f .*\.env\b/);
   });
 
-  it("defines every npm script the gate runs, and keeps live out of npm test", () => {
-    const pkg = JSON.parse(
-      readFileSync(resolve(process.cwd(), "package.json"), "utf8"),
-    ) as { scripts: Record<string, string> };
+  const pkg = JSON.parse(
+    readFileSync(resolve(process.cwd(), "package.json"), "utf8"),
+  ) as { scripts: Record<string, string> };
 
-    for (const script of [...gateScripts, "ci:gate", "test"]) {
+  it("defines every npm script the gate runs", () => {
+    for (const script of ["ci:gate", ...gateScripts]) {
       expect(pkg.scripts[script], `missing script ${script}`).toEqual(
         expect.any(String),
       );
     }
+  });
 
+  it("keeps live Cognito out of the default npm test", () => {
     expect(pkg.scripts.test).toMatch(/test:unit/);
     expect(pkg.scripts.test).toMatch(/test:http/);
     expect(pkg.scripts.test).not.toMatch(/live/);
