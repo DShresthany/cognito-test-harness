@@ -53,7 +53,7 @@ All of the above gate pull requests via `test:live:cognito` inside `ci:gate`.
 
 ## Safe diagnostics
 
-Reports and stubs may emit only allowlisted fields (see `REPORT_ALLOWLIST_FIELDS` / `toSafeDiagnostic`): operation, outcome kind, challenge/rejection type, provider code, request id(s), retryability, profile id, cleanup-oriented booleans. They must never include usernames, passwords, tokens, sessions, secrets, or TOTP codes.
+Reports and stubs emit only safe fields (see `toSafeDiagnostic` and the typed scenario evidence): operation, outcome kind, challenge/rejection type, provider code, request id(s), retryability, profile id, cleanup-oriented booleans. They must never include usernames, passwords, tokens, sessions, secrets, or TOTP codes.
 
 ## Cleanup
 
