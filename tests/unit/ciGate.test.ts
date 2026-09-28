@@ -2,28 +2,16 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
-import {
-  DEFAULT_TEST_SUITES,
-  NAMED_SUITES,
-  REQUIRED_NPM_SCRIPTS,
-  assertReportKeysAllowlisted,
-} from "../../src/ciGate.js";
 
-describe("named suites and CI gate contract", () => {
+describe("CI gate contract", () => {
   const gate = readFileSync(
     resolve(process.cwd(), "scripts/ci-gate.sh"),
     "utf8",
   );
-
-  it("names unit, http, and live-cognito suites", () => {
-    expect([...NAMED_SUITES]).toEqual(["unit", "http", "live-cognito"]);
-    expect([...DEFAULT_TEST_SUITES]).toEqual(["unit", "http"]);
-  });
+  const gateScripts = [...gate.matchAll(/npm run (\S+)/g)].map((m) => m[1]);
 
   it("runs the gate scripts in order so live Cognito comes last", () => {
-    const scripts = [...gate.matchAll(/npm run (\S+)/g)].map((m) => m[1]);
-
-    expect(scripts).toEqual([
+    expect(gateScripts).toEqual([
       "typecheck",
       "test:unit",
       "test:http",
@@ -48,27 +36,12 @@ describe("named suites and CI gate contract", () => {
     expect(cleanup).toMatch(/rm -f .*\.env\b/);
   });
 
-  it("rejects report objects with non-allowlisted keys", () => {
-    expect(() =>
-      assertReportKeysAllowlisted({
-        outcomeKind: "authenticated",
-        accessVerified: true,
-      }),
-    ).not.toThrow();
-    expect(() =>
-      assertReportKeysAllowlisted({
-        outcomeKind: "authenticated",
-        accessToken: "secret",
-      }),
-    ).toThrow(/not allowlisted/);
-  });
-
-  it("requires npm scripts for suites and the CI gate", () => {
+  it("defines every npm script the gate runs, and keeps live out of npm test", () => {
     const pkg = JSON.parse(
       readFileSync(resolve(process.cwd(), "package.json"), "utf8"),
     ) as { scripts: Record<string, string> };
 
-    for (const script of Object.keys(REQUIRED_NPM_SCRIPTS)) {
+    for (const script of [...gateScripts, "ci:gate", "test"]) {
       expect(pkg.scripts[script], `missing script ${script}`).toEqual(
         expect.any(String),
       );

@@ -25,7 +25,7 @@ The HTTP stub (`POST /login`, `GET /confirmed`) wraps the confidential admin pas
 - `NEW_PASSWORD_REQUIRED` continue / policy / bad session
 - Deterministic software-token MFA enroll + sign-in (including reused-code rejection)
 - Ephemeral users cleaned up best-effort after the run
-- Passwords/secrets never committed; reports use allowlisted fields only
+- Passwords/secrets never committed; reports carry only typed, non-secret fields
 
 ## Coverage matrix
 
