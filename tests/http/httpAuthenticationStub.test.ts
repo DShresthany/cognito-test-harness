@@ -1,9 +1,14 @@
+import { generateKeyPairSync, sign, type KeyObject } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import {
   OperationalAuthenticationFailure,
   type AuthenticationOutcome,
 } from "../../src/authenticationOutcome.js";
 import { createApp } from "../../src/app.js";
+import {
+  createAccessTokenVerifier,
+  wrapAccessTokenVerifier,
+} from "../../src/jwtVerifier.js";
 
 const authenticated: AuthenticationOutcome = {
   kind: "authenticated",
@@ -33,6 +38,51 @@ function createStubApp(overrides?: {
     reportDiagnostic: { report },
   });
   return { app, report };
+}
+
+const TEST_USER_POOL_ID = "us-east-1_TestPool1";
+const TEST_ISSUER = `https://cognito-idp.us-east-1.amazonaws.com/${TEST_USER_POOL_ID}`;
+const TEST_CLIENT_ID = "test-client-id";
+const TEST_KID = "test-signing-key";
+
+function createStubAppWithRealAccessTokenVerifier() {
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+  });
+  const verifier = createAccessTokenVerifier({
+    userPoolId: TEST_USER_POOL_ID,
+    clientId: TEST_CLIENT_ID,
+  });
+  const { n, e } = publicKey.export({ format: "jwk" });
+  if (!n || !e) {
+    throw new Error("RSA public JWK is missing modulus or exponent");
+  }
+  verifier.cacheJwks({
+    keys: [{ kty: "RSA", n, e, kid: TEST_KID, alg: "RS256", use: "sig" }],
+  });
+  const accessTokenVerifier = wrapAccessTokenVerifier(verifier);
+
+  return {
+    ...createStubApp({ verify: (token) => accessTokenVerifier.verify(token) }),
+    signAccessToken: (expiresAtSeconds: number) =>
+      signJwt(privateKey, {
+        iss: TEST_ISSUER,
+        token_use: "access",
+        client_id: TEST_CLIENT_ID,
+        sub: "sub-1",
+        username: "persona",
+        iat: expiresAtSeconds - 3600,
+        exp: expiresAtSeconds,
+      }),
+  };
+}
+
+function signJwt(privateKey: KeyObject, payload: Record<string, unknown>) {
+  const encode = (value: object) =>
+    Buffer.from(JSON.stringify(value)).toString("base64url");
+  const signingInput = `${encode({ alg: "RS256", kid: TEST_KID, typ: "JWT" })}.${encode(payload)}`;
+  const signature = sign("RSA-SHA256", Buffer.from(signingInput), privateKey);
+  return `${signingInput}.${signature.toString("base64url")}`;
 }
 
 describe("HTTP authentication stub", () => {
@@ -253,5 +303,32 @@ describe("HTTP authentication stub", () => {
     expect(await res.json()).toEqual({
       error: "authentication service error",
     });
+  });
+});
+
+describe("HTTP authentication stub with the real access-token verifier", () => {
+  const { app, signAccessToken } = createStubAppWithRealAccessTokenVerifier();
+  const nowSeconds = () => Math.floor(Date.now() / 1000);
+
+  it("accepts a locally signed access token on GET /confirmed when it has not expired", async () => {
+    const res = await app.request("/confirmed", {
+      headers: { Authorization: `Bearer ${signAccessToken(nowSeconds() + 3600)}` },
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      status: "signed_in",
+      message: "Login confirmed",
+      user: { sub: "sub-1", username: "persona" },
+    });
+  });
+
+  it("rejects an expired access token on GET /confirmed with 401 invalid token", async () => {
+    const res = await app.request("/confirmed", {
+      headers: { Authorization: `Bearer ${signAccessToken(nowSeconds() - 60)}` },
+    });
+
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: "invalid token" });
   });
 });
