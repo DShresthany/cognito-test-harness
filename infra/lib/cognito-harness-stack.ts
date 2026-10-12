@@ -10,6 +10,10 @@ export const COGNITO_CONFIG_SECRET_NAME = "cognito-test-harness/cognito";
 
 export const ADMIN_CONFIDENTIAL_PROFILE_ID = "admin-confidential";
 export const USER_POOL_PUBLIC_PROFILE_ID = "user-pool-public";
+export const REFRESH_ROTATING_PUBLIC_PROFILE_ID = "refresh-rotating-public";
+export const REFRESH_ROTATING_CONFIDENTIAL_PROFILE_ID =
+  "refresh-rotating-confidential";
+export const REFRESH_ROTATING_GRACE_PROFILE_ID = "refresh-rotating-grace";
 
 /** SNS failure-alert inbox (String parameter; create once outside the stack). */
 export const ALERT_EMAIL_PARAMETER_NAME = "/cognito-test-harness/alert-email";
@@ -81,7 +85,7 @@ export class CognitoHarnessStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
-    const firstReleaseClientSettings = {
+    const sharedClientSettings = {
       accessTokenValidity: cdk.Duration.hours(1),
       idTokenValidity: cdk.Duration.hours(1),
       refreshTokenValidity: cdk.Duration.days(30),
@@ -98,7 +102,7 @@ export class CognitoHarnessStack extends cdk.Stack {
       authFlows: {
         adminUserPassword: true,
       },
-      ...firstReleaseClientSettings,
+      ...sharedClientSettings,
     });
 
     const publicClient = userPool.addClient("HarnessPublicClient", {
@@ -107,8 +111,53 @@ export class CognitoHarnessStack extends cdk.Stack {
       authFlows: {
         userPassword: true,
       },
-      ...firstReleaseClientSettings,
+      ...sharedClientSettings,
     });
+
+    const addRotatingClient = (
+      id: string,
+      profileId: string,
+      options: {
+        generateSecret: boolean;
+        authFlows: cognito.AuthFlow;
+        gracePeriod: cdk.Duration;
+      },
+    ) =>
+      userPool.addClient(id, {
+        userPoolClientName: profileId,
+        generateSecret: options.generateSecret,
+        authFlows: options.authFlows,
+        ...sharedClientSettings,
+        refreshTokenRotationGracePeriod: options.gracePeriod,
+      });
+
+    const refreshRotatingPublicClient = addRotatingClient(
+      "RefreshRotatingPublic",
+      REFRESH_ROTATING_PUBLIC_PROFILE_ID,
+      {
+        generateSecret: false,
+        authFlows: { userPassword: true },
+        gracePeriod: cdk.Duration.seconds(0),
+      },
+    );
+    const refreshRotatingConfidentialClient = addRotatingClient(
+      "RefreshRotatingConfidential",
+      REFRESH_ROTATING_CONFIDENTIAL_PROFILE_ID,
+      {
+        generateSecret: true,
+        authFlows: { adminUserPassword: true },
+        gracePeriod: cdk.Duration.seconds(0),
+      },
+    );
+    const refreshRotatingGraceClient = addRotatingClient(
+      "RefreshRotatingGrace",
+      REFRESH_ROTATING_GRACE_PROFILE_ID,
+      {
+        generateSecret: false,
+        authFlows: { userPassword: true },
+        gracePeriod: cdk.Duration.seconds(10),
+      },
+    );
 
     // Source of truth for harness + CI (no plaintext client secret in stack outputs).
     const cognitoConfig = new secretsmanager.Secret(this, "CognitoConfig", {
@@ -125,7 +174,10 @@ export class CognitoHarnessStack extends cdk.Stack {
         '"userPoolId":"${UserPoolId}",',
         '"profiles":{',
         `"${ADMIN_CONFIDENTIAL_PROFILE_ID}":{"kind":"confidential","clientId":"\${ClientId}","clientSecret":"\${ClientSecret}"},`,
-        `"${USER_POOL_PUBLIC_PROFILE_ID}":{"kind":"public","clientId":"\${PublicClientId}"}`,
+        `"${USER_POOL_PUBLIC_PROFILE_ID}":{"kind":"public","clientId":"\${PublicClientId}"},`,
+        `"${REFRESH_ROTATING_PUBLIC_PROFILE_ID}":{"kind":"public","clientId":"\${RefreshRotatingPublicClientId}"},`,
+        `"${REFRESH_ROTATING_CONFIDENTIAL_PROFILE_ID}":{"kind":"confidential","clientId":"\${RefreshRotatingConfidentialClientId}","clientSecret":"\${RefreshRotatingConfidentialClientSecret}"},`,
+        `"${REFRESH_ROTATING_GRACE_PROFILE_ID}":{"kind":"public","clientId":"\${RefreshRotatingGraceClientId}"}`,
         "}}",
       ].join(""),
       {
@@ -133,6 +185,13 @@ export class CognitoHarnessStack extends cdk.Stack {
         ClientId: confidentialClient.userPoolClientId,
         ClientSecret: confidentialClient.userPoolClientSecret.unsafeUnwrap(),
         PublicClientId: publicClient.userPoolClientId,
+        RefreshRotatingPublicClientId:
+          refreshRotatingPublicClient.userPoolClientId,
+        RefreshRotatingConfidentialClientId:
+          refreshRotatingConfidentialClient.userPoolClientId,
+        RefreshRotatingConfidentialClientSecret:
+          refreshRotatingConfidentialClient.userPoolClientSecret.unsafeUnwrap(),
+        RefreshRotatingGraceClientId: refreshRotatingGraceClient.userPoolClientId,
       },
     );
 

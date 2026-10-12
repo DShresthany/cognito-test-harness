@@ -103,7 +103,7 @@ export class HarnessCodeBuild extends Construct {
       }),
     );
 
-    // Fixture manager + confidential admin driver (create/set password/auth/delete) — pool-scoped.
+    // Fixture manager, confidential admin driver, and admin global sign-out — pool-scoped.
     role.addToPolicy(
       new iam.PolicyStatement({
         sid: "CognitoHarnessAdmin",
@@ -112,6 +112,7 @@ export class HarnessCodeBuild extends Construct {
           "cognito-idp:AdminSetUserPassword",
           "cognito-idp:AdminInitiateAuth",
           "cognito-idp:AdminDeleteUser",
+          "cognito-idp:AdminUserGlobalSignOut",
         ],
         resources: [props.userPool.userPoolArn],
       }),
