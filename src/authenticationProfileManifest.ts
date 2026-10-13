@@ -2,10 +2,17 @@ import { z } from "zod";
 
 export const ADMIN_CONFIDENTIAL_PROFILE_ID = "admin-confidential" as const;
 export const USER_POOL_PUBLIC_PROFILE_ID = "user-pool-public" as const;
+export const REFRESH_ROTATING_PUBLIC_PROFILE_ID =
+  "refresh-rotating-public" as const;
 
 export type AuthenticationProfileId =
   | typeof ADMIN_CONFIDENTIAL_PROFILE_ID
-  | typeof USER_POOL_PUBLIC_PROFILE_ID;
+  | typeof USER_POOL_PUBLIC_PROFILE_ID
+  | typeof REFRESH_ROTATING_PUBLIC_PROFILE_ID;
+
+export type KnownPublicProfileId =
+  | typeof USER_POOL_PUBLIC_PROFILE_ID
+  | typeof REFRESH_ROTATING_PUBLIC_PROFILE_ID;
 
 export type ConfidentialProfileRecord = {
   kind: "confidential";

@@ -1,3 +1,4 @@
+import { RefreshTokenReuseException } from "@aws-sdk/client-cognito-identity-provider";
 import { describe, expect, it, vi } from "vitest";
 import { CognitoUserPoolAuthDriver } from "../../src/cognitoUserPoolAuthDriver.js";
 
@@ -374,6 +375,101 @@ describe("CognitoUserPoolAuthDriver", () => {
       kind: "rejected",
       rejection: { reason: "invalid-code" },
     });
+  });
+
+  it("rotates a refresh token with GetTokensFromRefreshToken and returns the replacement", async () => {
+    const send = vi.fn().mockResolvedValue({
+      AuthenticationResult: {
+        AccessToken: "rotated-access",
+        IdToken: "rotated-id",
+        RefreshToken: "replacement-refresh",
+      },
+    });
+    const driver = new CognitoUserPoolAuthDriver(
+      { send },
+      {
+        id: "refresh-rotating-public",
+        userPoolId: "pool-id",
+        clientId: "rotating-public-client-id",
+      },
+    );
+
+    await expect(driver.rotateRefreshToken("consumed-refresh")).resolves.toEqual({
+      kind: "authenticated",
+      tokens: {
+        accessToken: "rotated-access",
+        idToken: "rotated-id",
+        refreshToken: "replacement-refresh",
+      },
+    });
+
+    const command = send.mock.calls[0]?.[0] as {
+      input?: {
+        ClientId?: string;
+        RefreshToken?: string;
+        ClientSecret?: string;
+        AuthFlow?: string;
+        AuthParameters?: Record<string, string>;
+      };
+    };
+    expect(command.input).toEqual({
+      ClientId: "rotating-public-client-id",
+      RefreshToken: "consumed-refresh",
+    });
+    expect(command.input?.ClientSecret).toBeUndefined();
+    expect(command.input?.AuthFlow).toBeUndefined();
+    expect(command.input?.AuthParameters?.SECRET_HASH).toBeUndefined();
+  });
+
+  it("does not retry a reused refresh token", async () => {
+    const send = vi.fn().mockRejectedValue(
+      new RefreshTokenReuseException({
+        message: "Refresh token has been used.",
+        $metadata: { requestId: "req-reuse" },
+      }),
+    );
+    const driver = new CognitoUserPoolAuthDriver({ send }, profile);
+
+    await expect(driver.rotateRefreshToken("consumed-refresh")).resolves.toMatchObject({
+      kind: "rejected",
+      rejection: {
+        reason: "invalid-refresh-token",
+        diagnostic: { providerCode: "RefreshTokenReuseException" },
+      },
+    });
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it("revokes a refresh token for the public client without a client secret", async () => {
+    const send = vi.fn().mockResolvedValue({});
+    const driver = new CognitoUserPoolAuthDriver({ send }, profile);
+
+    await expect(driver.revokeRefreshToken("refresh-token")).resolves.toEqual({
+      kind: "revoked",
+    });
+
+    const command = send.mock.calls[0]?.[0] as {
+      input?: { Token?: string; ClientId?: string; ClientSecret?: string };
+    };
+    expect(command.input).toEqual({
+      Token: "refresh-token",
+      ClientId: "public-client-id",
+    });
+    expect(command.input?.ClientSecret).toBeUndefined();
+  });
+
+  it("signs out globally with the access token", async () => {
+    const send = vi.fn().mockResolvedValue({});
+    const driver = new CognitoUserPoolAuthDriver({ send }, profile);
+
+    await expect(driver.globalSignOut("access-token")).resolves.toEqual({
+      kind: "signed-out",
+    });
+
+    const command = send.mock.calls[0]?.[0] as {
+      input?: { AccessToken?: string };
+    };
+    expect(command.input).toEqual({ AccessToken: "access-token" });
   });
 
   it("rejects a reused sign-in TOTP as expired-code", async () => {

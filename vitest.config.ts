@@ -37,6 +37,17 @@ export default defineConfig({
           hookTimeout: 90_000,
         },
       },
+      {
+        test: {
+          name: "soak-token-lifecycle",
+          include: ["tests/soak/**/*.test.ts"],
+          ...noRetry,
+          fileParallelism: false,
+          maxWorkers: 1,
+          testTimeout: 180_000,
+          hookTimeout: 90_000,
+        },
+      },
     ],
   },
 });

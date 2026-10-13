@@ -55,4 +55,14 @@ describe("CI gate contract", () => {
     expect(pkg.scripts["test:live:cognito"]).toMatch(/live/);
     expect(pkg.scripts["test:soak:totp"]).toBeUndefined();
   });
+
+  it("keeps the token-lifecycle soak outside the required gate and default test", () => {
+    expect(pkg.scripts["test:soak:token-lifecycle"]).toBe(
+      "vitest run --project soak-token-lifecycle",
+    );
+    expect(gateScripts).not.toContain("test:soak:token-lifecycle");
+    expect(pkg.scripts.test).not.toMatch(/soak/);
+    expect(pkg.scripts["test:live:cognito"]).not.toMatch(/soak/);
+    expect(gate).not.toMatch(/soak/);
+  });
 });

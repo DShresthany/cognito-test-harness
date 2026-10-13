@@ -10,12 +10,14 @@ export type AccessTokenClaims = {
   sub: string;
   username: string;
   jti?: string;
+  origin_jti?: string;
   iat?: number;
 };
 export type IdTokenClaims = {
   sub: string;
   email?: string;
   jti?: string;
+  origin_jti?: string;
   iat?: number;
 };
 
@@ -52,15 +54,39 @@ export function createIdTokenVerifier(input: {
 }
 
 export function wrapAccessTokenVerifier(verifier: {
-  verify(accessToken: string): Promise<{ sub: string; username: string }>;
+  verify(accessToken: string): Promise<{
+    sub: string;
+    username: string;
+    jti?: string;
+    origin_jti?: string;
+    iat?: number;
+  }>;
 }): TokenVerifierPort<AccessTokenClaims> {
-  return wrapTokenVerifier(verifier, "verify-access-token");
+  return wrapTokenVerifier(verifier, "verify-access-token", (claims) => ({
+    sub: claims.sub,
+    username: claims.username,
+    ...optionalClaim("jti", claims.jti),
+    ...optionalClaim("origin_jti", claims.origin_jti),
+    ...optionalNumber("iat", claims.iat),
+  }));
 }
 
 export function wrapIdTokenVerifier(verifier: {
-  verify(idToken: string): Promise<{ sub: string; email?: string }>;
+  verify(idToken: string): Promise<{
+    sub: string;
+    email?: string;
+    jti?: string;
+    origin_jti?: string;
+    iat?: number;
+  }>;
 }): TokenVerifierPort<IdTokenClaims> {
-  return wrapTokenVerifier(verifier, "verify-id-token");
+  return wrapTokenVerifier(verifier, "verify-id-token", (claims) => ({
+    sub: claims.sub,
+    ...optionalClaim("email", claims.email),
+    ...optionalClaim("jti", claims.jti),
+    ...optionalClaim("origin_jti", claims.origin_jti),
+    ...optionalNumber("iat", claims.iat),
+  }));
 }
 
 export function createAccessTokenVerifierPort(input: {
@@ -87,14 +113,15 @@ export function createProfileTokenVerifiers(input: {
   };
 }
 
-function wrapTokenVerifier<TClaims>(
-  verifier: { verify(token: string): Promise<TClaims> },
+function wrapTokenVerifier<TClaims, TVerified>(
+  verifier: { verify(token: string): Promise<TVerified> },
   operation: "verify-access-token" | "verify-id-token",
+  project: (claims: TVerified) => TClaims,
 ): TokenVerifierPort<TClaims> {
   return {
     async verify(token) {
       try {
-        return await verifier.verify(token);
+        return project(await verifier.verify(token));
       } catch (error) {
         if (error instanceof NonRetryableFetchError) {
           throw new OperationalAuthenticationFailure({
@@ -116,6 +143,26 @@ function wrapTokenVerifier<TClaims>(
       }
     },
   };
+}
+
+function optionalClaim(
+  key: string,
+  value: string | undefined,
+): Record<string, string> {
+  if (value === undefined) {
+    return {};
+  }
+  return { [key]: value };
+}
+
+function optionalNumber(
+  key: string,
+  value: number | undefined,
+): Record<string, number> {
+  if (value === undefined) {
+    return {};
+  }
+  return { [key]: value };
 }
 
 function isRetryableJwksFailure(error: unknown): boolean {
