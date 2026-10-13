@@ -83,7 +83,7 @@ test("User Pool, confidential client, CodeBuild, and failure email alerts", () =
   );
   expect(statements).not.toContain("ReadHarnessStackOutputs");
 
-  // CognitoHarnessAdmin allowlist must match fixture + admin-driver Admin APIs (no unused Admin APIs).
+  // CognitoHarnessAdmin allowlist is the fixture, admin-driver, and global sign-out APIs.
   const cognitoAdmin = Object.values(template.findResources("AWS::IAM::Policy"))
     .flatMap(
       (p) =>
@@ -100,8 +100,23 @@ test("User Pool, confidential client, CodeBuild, and failure email alerts", () =
       "cognito-idp:AdminDeleteUser",
       "cognito-idp:AdminInitiateAuth",
       "cognito-idp:AdminSetUserPassword",
+      "cognito-idp:AdminUserGlobalSignOut",
     ].sort(),
   );
+  const describeProfiles = Object.values(
+    template.findResources("AWS::IAM::Policy"),
+  )
+    .flatMap(
+      (p) =>
+        (p.Properties?.PolicyDocument?.Statement as Array<{
+          Sid?: string;
+          Resource?: unknown;
+        }>) ?? [],
+    )
+    .find((s) => s.Sid === "CognitoDescribeProfiles");
+  expect(cognitoAdmin).toMatchObject({
+    Resource: describeProfiles?.Resource,
+  });
 
   template.hasResourceProperties("AWS::SNS::Topic", {
     TopicName: "cognito-test-harness-ci-alerts",
@@ -161,7 +176,7 @@ test("adds a public User Pool client for user-pool-public", () => {
   });
   const template = Template.fromStack(stack);
 
-  template.resourceCountIs("AWS::Cognito::UserPoolClient", 2);
+  template.resourceCountIs("AWS::Cognito::UserPoolClient", 5);
   template.hasResourceProperties("AWS::Cognito::UserPoolClient", {
     ClientName: "cognito-test-harness-public",
     GenerateSecret: false,
@@ -197,8 +212,19 @@ test("keeps the confidential admin client with revocation and non-rotating refre
   const clients = Object.values(
     template.findResources("AWS::Cognito::UserPoolClient"),
   );
-  for (const client of clients) {
+  const firstReleaseClients = clients.filter((client) =>
+    ["cognito-test-harness-web", "cognito-test-harness-public"].includes(
+      client.Properties.ClientName as string,
+    ),
+  );
+  expect(firstReleaseClients).toHaveLength(2);
+  for (const client of firstReleaseClients) {
     expect(client.Properties.RefreshTokenRotation).toBeUndefined();
+    expect(client.Properties.ExplicitAuthFlows).toContain(
+      "ALLOW_REFRESH_TOKEN_AUTH",
+    );
+  }
+  for (const client of clients) {
     expect(client.Properties.ExplicitAuthFlows).not.toContain("ALLOW_USER_AUTH");
   }
 });
@@ -219,7 +245,7 @@ test("configures OPTIONAL software-token MFA on the pool", () => {
   });
 });
 
-test("sets first-release token and challenge durations on both clients", () => {
+test("sets token and challenge durations on every app client", () => {
   const app = new cdk.App();
   const stack = new CognitoHarnessStack(app, "TestStackDurations", {
     env: { account: "111111111111", region: "us-east-1" },
@@ -229,7 +255,7 @@ test("sets first-release token and challenge durations on both clients", () => {
   const clients = Object.values(
     template.findResources("AWS::Cognito::UserPoolClient"),
   );
-  expect(clients).toHaveLength(2);
+  expect(clients).toHaveLength(5);
   // CDK emits minutes: 60 = 1 hour, 43200 = 30 days, 3 = challenge session.
   for (const client of clients) {
     expect(client.Properties).toMatchObject({
@@ -289,6 +315,49 @@ test("writes schema version 2 profiles without legacy top-level client fields", 
   );
 });
 
+test("publishes the three rotation profiles in the schema version 2 manifest", () => {
+  const app = new cdk.App();
+  const stack = new CognitoHarnessStack(app, "TestStackRotationManifest", {
+    env: { account: "111111111111", region: "us-east-1" },
+    alertEmail: "ci-alerts@example.com",
+  });
+  const template = Template.fromStack(stack);
+  const secret = Object.values(
+    template.findResources("AWS::SecretsManager::Secret"),
+  ).find((resource) => resource.Properties.Name === "cognito-test-harness/cognito");
+  expect(secret).toBeDefined();
+  const secretString = secret!.Properties.SecretString as {
+    "Fn::Sub": [string, Record<string, unknown>];
+  };
+  const document = secretString["Fn::Sub"][0];
+  const variables = secretString["Fn::Sub"][1];
+
+  expect(document).toContain('"schemaVersion":2');
+  expect(document).toContain(
+    '"refresh-rotating-public":{"kind":"public","clientId":"${RefreshRotatingPublicClientId}"}',
+  );
+  expect(document).toContain(
+    '"refresh-rotating-confidential":{"kind":"confidential","clientId":"${RefreshRotatingConfidentialClientId}","clientSecret":"${RefreshRotatingConfidentialClientSecret}"}',
+  );
+  expect(document).toContain(
+    '"refresh-rotating-grace":{"kind":"public","clientId":"${RefreshRotatingGraceClientId}"}',
+  );
+  expect(
+    document.match(/"refresh-rotating-public":\{[^}]*\}/)?.[0],
+  ).not.toContain("clientSecret");
+  expect(
+    document.match(/"refresh-rotating-grace":\{[^}]*\}/)?.[0],
+  ).not.toContain("clientSecret");
+  expect(variables).toEqual(
+    expect.objectContaining({
+      RefreshRotatingPublicClientId: expect.anything(),
+      RefreshRotatingConfidentialClientId: expect.anything(),
+      RefreshRotatingConfidentialClientSecret: expect.anything(),
+      RefreshRotatingGraceClientId: expect.anything(),
+    }),
+  );
+});
+
 test("grants describe IAM without AdminRespondToAuthChallenge", () => {
   const app = new cdk.App();
   const stack = new CognitoHarnessStack(app, "TestStackDescribeIam", {
@@ -317,6 +386,99 @@ test("grants describe IAM without AdminRespondToAuthChallenge", () => {
 
   const allActions = statements.flatMap((s) => [s.Action].flat());
   expect(allActions).not.toContain("cognito-idp:AdminRespondToAuthChallenge");
+});
+
+test("adds refresh-rotating-public with zero-grace rotation and password auth only", () => {
+  const app = new cdk.App();
+  const stack = new CognitoHarnessStack(app, "TestStackRotatingPublic", {
+    env: { account: "111111111111", region: "us-east-1" },
+    alertEmail: "ci-alerts@example.com",
+  });
+  const template = Template.fromStack(stack);
+
+  template.hasResourceProperties("AWS::Cognito::UserPoolClient", {
+    ClientName: "refresh-rotating-public",
+    GenerateSecret: false,
+    AllowedOAuthFlowsUserPoolClient: false,
+    ExplicitAuthFlows: ["ALLOW_USER_PASSWORD_AUTH"],
+    PreventUserExistenceErrors: "ENABLED",
+    EnableTokenRevocation: true,
+    AccessTokenValidity: 60,
+    IdTokenValidity: 60,
+    RefreshTokenValidity: 43200,
+    AuthSessionValidity: 3,
+    TokenValidityUnits: {
+      AccessToken: "minutes",
+      IdToken: "minutes",
+      RefreshToken: "minutes",
+    },
+    RefreshTokenRotation: {
+      Feature: "ENABLED",
+      RetryGracePeriodSeconds: 0,
+    },
+  });
+});
+
+test("adds refresh-rotating-confidential with a secret and admin password auth only", () => {
+  const app = new cdk.App();
+  const stack = new CognitoHarnessStack(app, "TestStackRotatingConfidential", {
+    env: { account: "111111111111", region: "us-east-1" },
+    alertEmail: "ci-alerts@example.com",
+  });
+  const template = Template.fromStack(stack);
+
+  template.hasResourceProperties("AWS::Cognito::UserPoolClient", {
+    ClientName: "refresh-rotating-confidential",
+    GenerateSecret: true,
+    AllowedOAuthFlowsUserPoolClient: false,
+    ExplicitAuthFlows: ["ALLOW_ADMIN_USER_PASSWORD_AUTH"],
+    PreventUserExistenceErrors: "ENABLED",
+    EnableTokenRevocation: true,
+    AccessTokenValidity: 60,
+    IdTokenValidity: 60,
+    RefreshTokenValidity: 43200,
+    AuthSessionValidity: 3,
+    TokenValidityUnits: {
+      AccessToken: "minutes",
+      IdToken: "minutes",
+      RefreshToken: "minutes",
+    },
+    RefreshTokenRotation: {
+      Feature: "ENABLED",
+      RetryGracePeriodSeconds: 0,
+    },
+  });
+});
+
+test("adds refresh-rotating-grace with a 10-second grace and password auth only", () => {
+  const app = new cdk.App();
+  const stack = new CognitoHarnessStack(app, "TestStackRotatingGrace", {
+    env: { account: "111111111111", region: "us-east-1" },
+    alertEmail: "ci-alerts@example.com",
+  });
+  const template = Template.fromStack(stack);
+
+  template.hasResourceProperties("AWS::Cognito::UserPoolClient", {
+    ClientName: "refresh-rotating-grace",
+    GenerateSecret: false,
+    AllowedOAuthFlowsUserPoolClient: false,
+    ExplicitAuthFlows: ["ALLOW_USER_PASSWORD_AUTH"],
+    PreventUserExistenceErrors: "ENABLED",
+    EnableTokenRevocation: true,
+    AccessTokenValidity: 60,
+    IdTokenValidity: 60,
+    RefreshTokenValidity: 43200,
+    AuthSessionValidity: 3,
+    TokenValidityUnits: {
+      AccessToken: "minutes",
+      IdToken: "minutes",
+      RefreshToken: "minutes",
+    },
+    RefreshTokenRotation: {
+      Feature: "ENABLED",
+      RetryGracePeriodSeconds: 10,
+    },
+  });
 });
 
 test("default alert email uses SSM parameter reference", () => {
