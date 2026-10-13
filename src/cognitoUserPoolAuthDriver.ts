@@ -2,8 +2,11 @@ import {
   AssociateSoftwareTokenCommand,
   AuthFlowType,
   ChallengeNameType,
+  GetTokensFromRefreshTokenCommand,
+  GlobalSignOutCommand,
   InitiateAuthCommand,
   RespondToAuthChallengeCommand,
+  RevokeTokenCommand,
   SetUserMFAPreferenceCommand,
   VerifySoftwareTokenCommand,
 } from "@aws-sdk/client-cognito-identity-provider";
@@ -15,13 +18,27 @@ import {
   type AuthenticationRejection,
   type RetryAuthenticationDependencies,
 } from "./authenticationOutcome.js";
+import {
+  REFRESH_ROTATING_PUBLIC_PROFILE_ID,
+  USER_POOL_PUBLIC_PROFILE_ID,
+} from "./authenticationProfileManifest.js";
 import type { CognitoCommandSender } from "./cognitoAdminAuthDriver.js";
 
 export type PublicUserPoolAuthProfile = {
-  id: "user-pool-public";
+  id:
+    | typeof USER_POOL_PUBLIC_PROFILE_ID
+    | typeof REFRESH_ROTATING_PUBLIC_PROFILE_ID;
   userPoolId: string;
   clientId: string;
 };
+
+export type RefreshTokenRevocationResult =
+  | { kind: "revoked" }
+  | { kind: "rejected"; rejection: AuthenticationRejection };
+
+export type GlobalSignOutResult =
+  | { kind: "signed-out" }
+  | { kind: "rejected"; rejection: AuthenticationRejection };
 
 export type NewPasswordChallengeInput = {
   session: string;
@@ -121,6 +138,88 @@ export class CognitoUserPoolAuthDriver {
             profileId: this.profile.id,
           },
         });
+      }
+    }, this.retry);
+  }
+
+  async rotateRefreshToken(refreshToken: string): Promise<AuthenticationOutcome> {
+    return retryAuthenticationOperation(async () => {
+      try {
+        const response = await this.sender.send(
+          new GetTokensFromRefreshTokenCommand({
+            ClientId: this.profile.clientId,
+            RefreshToken: refreshToken,
+          }),
+        );
+        return mapAuthenticationOutcome({
+          operation: "get-tokens-from-refresh-token",
+          response,
+          continuation: {
+            profileId: this.profile.id,
+          },
+        });
+      } catch (error) {
+        if (error instanceof OperationalAuthenticationFailure) {
+          throw error;
+        }
+        return mapAuthenticationOutcome({
+          operation: "get-tokens-from-refresh-token",
+          error,
+          continuation: {
+            profileId: this.profile.id,
+          },
+        });
+      }
+    }, this.retry);
+  }
+
+  async revokeRefreshToken(
+    refreshToken: string,
+  ): Promise<RefreshTokenRevocationResult> {
+    return retryAuthenticationOperation(async () => {
+      try {
+        await this.sender.send(
+          new RevokeTokenCommand({
+            ClientId: this.profile.clientId,
+            Token: refreshToken,
+          }),
+        );
+        return { kind: "revoked" };
+      } catch (error) {
+        if (error instanceof OperationalAuthenticationFailure) {
+          throw error;
+        }
+        return asRejectedResult(
+          "revoke-token",
+          mapAuthenticationOutcome({
+            operation: "revoke-token",
+            error,
+          }),
+        );
+      }
+    }, this.retry);
+  }
+
+  async globalSignOut(accessToken: string): Promise<GlobalSignOutResult> {
+    return retryAuthenticationOperation(async () => {
+      try {
+        await this.sender.send(
+          new GlobalSignOutCommand({
+            AccessToken: accessToken,
+          }),
+        );
+        return { kind: "signed-out" };
+      } catch (error) {
+        if (error instanceof OperationalAuthenticationFailure) {
+          throw error;
+        }
+        return asRejectedResult(
+          "global-sign-out",
+          mapAuthenticationOutcome({
+            operation: "global-sign-out",
+            error,
+          }),
+        );
       }
     }, this.retry);
   }
@@ -332,5 +431,31 @@ export class CognitoUserPoolAuthDriver {
         });
       }
     }, this.retry);
+  }
+}
+
+function asRejectedResult(
+  operation: "revoke-token" | "global-sign-out",
+  outcome: AuthenticationOutcome,
+): { kind: "rejected"; rejection: AuthenticationRejection } {
+  switch (outcome.kind) {
+    case "rejected":
+      return { kind: "rejected", rejection: outcome.rejection };
+    case "authenticated":
+    case "challenged":
+      throw new OperationalAuthenticationFailure({
+        category: "unsupported-response",
+        operation,
+        retryable: false,
+      });
+    default: {
+      const exhaustive: never = outcome;
+      throw new OperationalAuthenticationFailure({
+        category: "unsupported-response",
+        operation,
+        retryable: false,
+        cause: exhaustive,
+      });
+    }
   }
 }

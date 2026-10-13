@@ -1,16 +1,20 @@
 import { readFile } from "node:fs/promises";
 import {
   ADMIN_CONFIDENTIAL_PROFILE_ID,
+  REFRESH_ROTATING_PUBLIC_PROFILE_ID,
   USER_POOL_PUBLIC_PROFILE_ID,
   loadAuthenticationProfileManifest,
   ManifestConfigurationFailure,
+  type AuthenticationProfileId,
   type AuthenticationProfileManifest,
   type ConfidentialProfileRecord,
+  type KnownPublicProfileId,
   type PublicProfileRecord,
 } from "./authenticationProfileManifest.js";
 import {
   EXPECTED_ADMIN_CONFIDENTIAL_CLIENT,
   EXPECTED_POOL_CONTRACT,
+  EXPECTED_REFRESH_ROTATING_PUBLIC_CLIENT,
   EXPECTED_USER_POOL_PUBLIC_CLIENT,
   FIRST_RELEASE_REQUIRED_PROFILE_IDS,
   type ExpectedClientContract,
@@ -23,6 +27,10 @@ export type DescribeUserPoolResult = {
     AdminCreateUserConfig?: { AllowAdminCreateUserOnly?: boolean };
     AccountRecoverySetting?: {
       RecoveryMechanisms?: Array<{ Name?: string }>;
+    };
+    DeviceConfiguration?: {
+      ChallengeRequiredOnNewDevice?: boolean;
+      DeviceOnlyRememberedOnUserPrompt?: boolean;
     };
     Tier?: string;
   };
@@ -50,7 +58,10 @@ export type DescribeUserPoolClientResult = {
     EnableTokenRevocation?: boolean;
     AllowedOAuthFlowsUserPoolClient?: boolean;
     PreventUserExistenceErrors?: string;
-    RefreshTokenRotation?: { Feature?: string };
+    RefreshTokenRotation?: {
+      Feature?: string;
+      RetryGracePeriodSeconds?: number;
+    };
   };
 };
 
@@ -79,8 +90,10 @@ export type CognitoTestRuntime = {
     userPoolId: string;
     region: string;
   };
-  requirePublicProfile(id: string): PublicProfileRecord & {
-    id: typeof USER_POOL_PUBLIC_PROFILE_ID;
+  requirePublicProfile<T extends KnownPublicProfileId>(
+    id: T,
+  ): PublicProfileRecord & {
+    id: T;
     userPoolId: string;
     region: string;
   };
@@ -151,13 +164,13 @@ export async function createCognitoTestRuntime(
           `authentication profile manifest: public profile required at profiles.${id}`,
         );
       }
-      if (id !== USER_POOL_PUBLIC_PROFILE_ID) {
+      if (!isKnownPublicProfileId(id)) {
         throw new ManifestConfigurationFailure(
           `authentication profile manifest: unsupported public profile id at profiles.${id}`,
         );
       }
       return {
-        id: USER_POOL_PUBLIC_PROFILE_ID,
+        id,
         userPoolId: manifest.userPoolId,
         region: manifest.region,
         ...profile,
@@ -223,6 +236,16 @@ async function assertPoolContract(
   if (pool.Tier === "LITE") {
     throw drift("userPool.Tier", "feature tier below minimum");
   }
+
+  if (
+    EXPECTED_POOL_CONTRACT.deviceTrackingDisabled &&
+    pool.DeviceConfiguration !== undefined
+  ) {
+    throw drift(
+      "userPool.DeviceConfiguration",
+      "device tracking must stay disabled",
+    );
+  }
 }
 
 async function assertMfaContract(
@@ -255,12 +278,13 @@ function assertClientContract(
     throw drift(`profiles.${profileId}`, "missing UserPoolClient payload");
   }
 
-  const expected =
-    kind === "confidential"
-      ? EXPECTED_ADMIN_CONFIDENTIAL_CLIENT
-      : EXPECTED_USER_POOL_PUBLIC_CLIENT;
+  if (!isAuthenticationProfileId(profileId)) {
+    throw drift(`profiles.${profileId}`, "no expected client contract");
+  }
+  const expected = expectedClientContract(profileId);
 
   assertAuthFlows(profileId, client.ExplicitAuthFlows ?? [], expected);
+  assertRefreshTokenRotation(profileId, client, expected);
 
   if (client.EnableTokenRevocation !== expected.enableTokenRevocation) {
     throw drift(
@@ -284,16 +308,6 @@ function assertClientContract(
       "existence-error drift",
     );
   }
-  if (
-    (client.RefreshTokenRotation?.Feature ?? "DISABLED") === "ENABLED" &&
-    !expected.refreshTokenRotationEnabled
-  ) {
-    throw drift(
-      `profiles.${profileId}.RefreshTokenRotation`,
-      "rotation must stay disabled",
-    );
-  }
-
   assertDuration(
     `profiles.${profileId}.AccessTokenValidity`,
     client.AccessTokenValidity,
@@ -327,6 +341,89 @@ function assertClientContract(
       `profiles.${profileId}.ClientSecret`,
       "public profile must not have a client secret",
     );
+  }
+}
+
+function assertRefreshTokenRotation(
+  profileId: string,
+  client: NonNullable<DescribeUserPoolClientResult["UserPoolClient"]>,
+  expected: ExpectedClientContract,
+): void {
+  const feature = client.RefreshTokenRotation?.Feature ?? "DISABLED";
+  switch (expected.refreshTokenRotationEnabled) {
+    case false:
+      if (feature === "ENABLED") {
+        throw drift(
+          `profiles.${profileId}.RefreshTokenRotation`,
+          "rotation must stay disabled",
+        );
+      }
+      return;
+    case true:
+      if (feature !== "ENABLED") {
+        throw drift(
+          `profiles.${profileId}.RefreshTokenRotation`,
+          "rotation must be enabled",
+        );
+      }
+      if (
+        client.RefreshTokenRotation?.RetryGracePeriodSeconds !==
+        expected.refreshTokenRotationGracePeriodSeconds
+      ) {
+        throw drift(
+          `profiles.${profileId}.RefreshTokenRotation.RetryGracePeriodSeconds`,
+          "rotation grace drift",
+        );
+      }
+      return;
+    default: {
+      const exhaustive: never = expected;
+      throw drift(
+        `profiles.${profileId}.RefreshTokenRotation`,
+        `unhandled rotation contract ${String(exhaustive)}`,
+      );
+    }
+  }
+}
+
+function expectedClientContract(
+  profileId: AuthenticationProfileId,
+): ExpectedClientContract {
+  switch (profileId) {
+    case ADMIN_CONFIDENTIAL_PROFILE_ID:
+      return EXPECTED_ADMIN_CONFIDENTIAL_CLIENT;
+    case USER_POOL_PUBLIC_PROFILE_ID:
+      return EXPECTED_USER_POOL_PUBLIC_CLIENT;
+    case REFRESH_ROTATING_PUBLIC_PROFILE_ID:
+      return EXPECTED_REFRESH_ROTATING_PUBLIC_CLIENT;
+    default: {
+      const exhaustive: never = profileId;
+      throw drift(
+        `profiles.${String(exhaustive)}`,
+        "no expected client contract",
+      );
+    }
+  }
+}
+
+function isAuthenticationProfileId(id: string): id is AuthenticationProfileId {
+  switch (id) {
+    case ADMIN_CONFIDENTIAL_PROFILE_ID:
+    case USER_POOL_PUBLIC_PROFILE_ID:
+    case REFRESH_ROTATING_PUBLIC_PROFILE_ID:
+      return true;
+    default:
+      return false;
+  }
+}
+
+function isKnownPublicProfileId(id: string): id is KnownPublicProfileId {
+  switch (id) {
+    case USER_POOL_PUBLIC_PROFILE_ID:
+    case REFRESH_ROTATING_PUBLIC_PROFILE_ID:
+      return true;
+    default:
+      return false;
   }
 }
 

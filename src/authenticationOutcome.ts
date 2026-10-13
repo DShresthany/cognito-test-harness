@@ -6,6 +6,9 @@ export type AuthenticationOperation =
   | "associate-software-token"
   | "set-user-mfa-preference"
   | "refresh-token"
+  | "get-tokens-from-refresh-token"
+  | "revoke-token"
+  | "global-sign-out"
   | "verify-access-token"
   | "verify-id-token";
 
@@ -603,33 +606,52 @@ function mapInvalidParameter(
   diagnostic: ProviderDiagnostic,
   error: unknown,
 ): AuthenticationOutcome {
-  if (operation === "respond-to-auth-challenge") {
-    return {
-      kind: "rejected",
-      rejection: {
-        reason: "invalid-challenge-session",
+  switch (operation) {
+    case "respond-to-auth-challenge":
+      return {
+        kind: "rejected",
+        rejection: {
+          reason: "invalid-challenge-session",
+          diagnostic,
+        },
+      };
+    case "refresh-token":
+    case "get-tokens-from-refresh-token":
+    case "revoke-token":
+      return {
+        kind: "rejected",
+        rejection: {
+          reason: "invalid-refresh-token",
+          diagnostic,
+        },
+      };
+    case "global-sign-out":
+      return {
+        kind: "rejected",
+        rejection: {
+          reason: "invalid-access-token",
+          diagnostic,
+        },
+      };
+    case "admin-initiate-auth":
+    case "initiate-auth":
+    case "associate-software-token":
+    case "verify-software-token":
+    case "set-user-mfa-preference":
+    case "verify-access-token":
+    case "verify-id-token":
+      throw new OperationalAuthenticationFailure({
+        category: "configuration",
+        operation,
+        retryable: false,
         diagnostic,
-      },
-    };
+        cause: error,
+      });
+    default: {
+      const exhaustive: never = operation;
+      return assertNever(exhaustive);
+    }
   }
-
-  if (operation === "refresh-token") {
-    return {
-      kind: "rejected",
-      rejection: {
-        reason: "invalid-refresh-token",
-        diagnostic,
-      },
-    };
-  }
-
-  throw new OperationalAuthenticationFailure({
-    category: "configuration",
-    operation,
-    retryable: false,
-    diagnostic,
-    cause: error,
-  });
 }
 
 function notAuthorizedReason(
@@ -637,12 +659,15 @@ function notAuthorizedReason(
 ): AuthenticationRejectionReason {
   switch (operation) {
     case "refresh-token":
+    case "get-tokens-from-refresh-token":
+    case "revoke-token":
       return "invalid-refresh-token";
     case "respond-to-auth-challenge":
       return "invalid-challenge-session";
     case "associate-software-token":
     case "verify-software-token":
     case "set-user-mfa-preference":
+    case "global-sign-out":
     case "verify-access-token":
     case "verify-id-token":
       return "invalid-access-token";

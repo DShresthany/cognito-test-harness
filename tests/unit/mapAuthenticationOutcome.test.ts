@@ -10,6 +10,7 @@ import {
   InvalidUserPoolConfigurationException,
   NotAuthorizedException,
   PasswordResetRequiredException,
+  RefreshTokenReuseException,
   TooManyFailedAttemptsException,
   TooManyRequestsException,
   UnexpectedLambdaException,
@@ -555,6 +556,131 @@ describe("mapAuthenticationOutcome", () => {
 
     expect(outcome.kind).toBe("rejected");
     expect(outcome).not.toHaveProperty("retryable");
+  });
+});
+
+describe("get-tokens-from-refresh-token", () => {
+  it("returns the replacement refresh token with the new access and ID tokens", () => {
+    const outcome = mapAuthenticationOutcome({
+      operation: "get-tokens-from-refresh-token",
+      response: {
+        AuthenticationResult: {
+          AccessToken: "rotated-access",
+          IdToken: "rotated-id",
+          RefreshToken: "replacement-refresh",
+          ExpiresIn: 3600,
+          TokenType: "Bearer",
+        },
+      },
+    });
+
+    expect(outcome).toEqual({
+      kind: "authenticated",
+      tokens: {
+        accessToken: "rotated-access",
+        idToken: "rotated-id",
+        refreshToken: "replacement-refresh",
+        expiresInSeconds: 3600,
+        tokenType: "Bearer",
+      },
+    });
+  });
+
+  it("maps reused, malformed, revoked, and wrong-client refresh tokens to invalid-refresh-token", () => {
+    const rows: Array<{
+      name: string;
+      error: unknown;
+      providerCode: string;
+    }> = [
+      {
+        name: "reused refresh token",
+        error: cognitoException(
+          RefreshTokenReuseException,
+          "Refresh token has been used.",
+        ),
+        providerCode: "RefreshTokenReuseException",
+      },
+      {
+        name: "malformed refresh token",
+        error: cognitoException(
+          InvalidParameterException,
+          "Invalid refresh token.",
+        ),
+        providerCode: "InvalidParameterException",
+      },
+      {
+        name: "revoked refresh token",
+        error: cognitoException(NotAuthorizedException, "Refresh token revoked."),
+        providerCode: "NotAuthorizedException",
+      },
+      {
+        name: "wrong-client refresh token",
+        error: cognitoException(
+          NotAuthorizedException,
+          "Refresh token was issued to another client.",
+        ),
+        providerCode: "NotAuthorizedException",
+      },
+    ];
+
+    for (const row of rows) {
+      const outcome = mapAuthenticationOutcome({
+        operation: "get-tokens-from-refresh-token",
+        error: row.error,
+      });
+      expectRejected(outcome, "invalid-refresh-token", row.providerCode);
+      expect(JSON.stringify(outcome)).not.toContain("Refresh token");
+    }
+  });
+
+  it("preserves operational categories instead of reporting them as invalid-refresh-token", () => {
+    const rows: Array<{
+      name: string;
+      error: unknown;
+      category: OperationalCategory;
+      retryable: boolean;
+      providerCode?: string;
+    }> = [
+      {
+        name: "throttled",
+        error: cognitoException(TooManyRequestsException, "Too many requests."),
+        category: "throttled",
+        retryable: true,
+        providerCode: "TooManyRequestsException",
+      },
+      {
+        name: "IAM denial",
+        error: cognitoException(
+          AccessDeniedException,
+          "User is not authorized to perform.",
+        ),
+        category: "iam-authorization",
+        retryable: false,
+        providerCode: "AccessDeniedException",
+      },
+      {
+        name: "network timeout",
+        error: Object.assign(new Error("socket hang up"), { name: "TimeoutError" }),
+        category: "network",
+        retryable: true,
+      },
+    ];
+
+    for (const row of rows) {
+      expectOperational(
+        () =>
+          mapAuthenticationOutcome({
+            operation: "get-tokens-from-refresh-token",
+            error: row.error,
+          }),
+        {
+          category: row.category,
+          retryable: row.retryable,
+          operation: "get-tokens-from-refresh-token",
+          ...(row.providerCode ? { providerCode: row.providerCode } : {}),
+        },
+      );
+    }
   });
 });
 

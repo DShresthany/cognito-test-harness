@@ -62,6 +62,39 @@ describe("wrapIdTokenVerifier", () => {
   });
 });
 
+describe("verified claim identifiers", () => {
+  it("exposes jti and origin_jti and succeeds when origin_jti is missing", async () => {
+    const access = wrapAccessTokenVerifier({
+      async verify() {
+        return {
+          sub: "subject-1",
+          username: "user",
+          jti: "access-jti",
+          origin_jti: "origin-jti",
+          iat: 10,
+        };
+      },
+    });
+    const id = wrapIdTokenVerifier({
+      async verify() {
+        return { sub: "subject-1", jti: "id-jti" };
+      },
+    });
+
+    await expect(access.verify("access-token")).resolves.toEqual({
+      sub: "subject-1",
+      username: "user",
+      jti: "access-jti",
+      origin_jti: "origin-jti",
+      iat: 10,
+    });
+    await expect(id.verify("id-token")).resolves.toEqual({
+      sub: "subject-1",
+      jti: "id-jti",
+    });
+  });
+});
+
 describe("createProfileTokenVerifiers", () => {
   it("exposes separate access and ID token verify ports for a profile", () => {
     const verifiers = createProfileTokenVerifiers({
