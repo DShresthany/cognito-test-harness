@@ -3,12 +3,15 @@
  * Validate materialized manifest + live Cognito Describe preflight.
  * Does not create personas.
  */
+import { config } from "dotenv";
 import { createCognitoClient } from "../src/cognitoAuth.js";
 import {
   createAwsCapabilityDescriber,
   resolveCognitoConfigPath,
 } from "../src/cognitoConfigPaths.js";
 import { createCognitoTestRuntime } from "../src/cognitoTestRuntime.js";
+
+config();
 
 async function main(): Promise<void> {
   const client = createCognitoClient();
@@ -22,6 +25,8 @@ async function main(): Promise<void> {
     "Preflight OK: manifest validated and live Cognito contract matches expectations (no users created)",
   );
 }
+
+
 
 main().catch((error: unknown) => {
   const message = error instanceof Error ? error.message : String(error);
