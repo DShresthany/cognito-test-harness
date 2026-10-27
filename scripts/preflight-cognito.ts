@@ -3,12 +3,15 @@
  * Validate materialized manifest + live Cognito Describe preflight.
  * Does not create personas.
  */
+import { config } from "dotenv";
 import { createCognitoClient } from "../src/cognitoAuth.js";
 import {
   createAwsCapabilityDescriber,
   resolveCognitoConfigPath,
 } from "../src/cognitoConfigPaths.js";
 import { createCognitoTestRuntime } from "../src/cognitoTestRuntime.js";
+
+config();
 
 async function main(): Promise<void> {
   const client = createCognitoClient();
